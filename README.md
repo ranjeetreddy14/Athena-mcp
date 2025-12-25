@@ -50,8 +50,8 @@ graph TD
 
 ```bash
 # Clone the repository
-git clone https://github.com/[your-username]/threat-intel-mcp.git
-cd threat-intel-mcp
+git clone https://github.com/ranjeetreddy14/Athena-mcp.git
+cd Athena-mcp
 
 # Setup Virtual Environment
 python -m venv .venv
@@ -95,9 +95,14 @@ This project is built to grow. The registry-based design allows you to add:
 
 ---
 
-## 📜 License
+## 📜 License & Rights
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+**Copyright (c) 2025 Ranjeet Reddy Manchana**
+
+> [!NOTE]
+> The author reserves the right to change the license or move to a closed-source model for future releases at their discretion.
 
 ---
 
-*“Imagination is the key for scalability.”* – Built by security professionals for the next generation of agentic defense.
+*“Imagination is the key for scalability.”* – Created by **Ranjeet Reddy Manchana** for the next generation of agentic defense.
