@@ -1,0 +1,35 @@
+{
+  "tools": [
+    {
+      "name": "ip_intel_shodan",
+      "input_type": "ip",
+      "intents": [
+        "where is this ip located",
+        "ip geolocation",
+        "ip ownership",
+        "public ip exposure",
+        "open ports on ip"
+      ],
+      "risk_tier": "low",
+      "requires_user_approval": false,
+      "enabled": true
+    },
+    {
+      "name": "url_scan_virustotal",
+      "input_type": "url",
+      "intents": [
+        "scan this url",
+        "is this website safe",
+        "check url for malware",
+        "url reputation check",
+        "scan link",
+        "security audit of url",
+        "malicious link scan",
+        "threat intelligence for url"
+      ],
+      "risk_tier": "low",
+      "requires_user_approval": false,
+      "enabled": true
+    }
+  ]
+}

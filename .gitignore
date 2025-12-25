@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Environment / Secret
+.env
+
+# Logs & Data
+logs/
+audit.jsonl
+
+# IDEs
+.vscode/
+.idea/
+.gemini/
+antigravity/
+
+# Temporary
+@test_*
+*.log
