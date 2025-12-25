@@ -1,4 +1,4 @@
-# Contributing to Threat Intel MCP
+# Contributing to Athena
 
 We love imagination and scalability! This project is designed so that anyone can add new capabilities without touching the core routing engine.
 

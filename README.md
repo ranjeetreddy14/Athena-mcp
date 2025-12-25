@@ -1,10 +1,10 @@
-# 🦅 Threat Intel MCP Server (v1)
+# 🦅 Athena (v1)
 
 [![MCP](https://img.shields.io/badge/MCP-1.0-blue)](https://modelcontextprotocol.io)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-green)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-A high-performance **Model Context Protocol (MCP)** server designed for autonomous threat intelligence orchestration. It bridges the gap between natural language security queries and technical intelligence APIs like Shodan and VirusTotal.
+Athena is a high-performance **Model Context Protocol (MCP)** server designed for autonomous threat intelligence orchestration. It bridges the gap between natural language security queries and technical intelligence APIs like Shodan and VirusTotal.
 
 ## 🌟 Why this matters?
 

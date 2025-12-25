@@ -53,7 +53,7 @@ registry = ToolRegistry(REGISTRY_PATH)
 router = SemanticRouter(registry)
 
 # Initialize MCP Server
-server = Server("ti-mcp-server")
+server = Server("athena")
 
 # Schema Definition
 class ThreatIntelResponse(BaseModel):
