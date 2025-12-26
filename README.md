@@ -1,4 +1,4 @@
-# 🦅 Athena (v1)
+# 🦅 Athena (v1.1)
 
 [![MCP](https://img.shields.io/badge/MCP-1.0-blue)](https://modelcontextprotocol.io)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-green)](https://python.org)
@@ -6,9 +6,22 @@
 
 Athena is a high-performance **Model Context Protocol (MCP)** server designed for autonomous threat intelligence orchestration. It bridges the gap between natural language security queries and technical intelligence APIs like Shodan and VirusTotal.
 
-## 🌟 Why this matters?
+## 🚀 What's New in v1.1?
 
-Modern LLMs struggle with deterministic tool use and routing when multiple security tools are involved. This server implements a **3-Layer Security-First Router** that ensures queries are handled with technical precision, multi-threaded responsiveness, and zero "hallucination" in the routing loop.
+- **Expanded Threat Intelligence**: Added **AbuseIPDB** and **ThreatFox** (abuse.ch).
+- **IOC Hash Support**: Now detects and routes MD5, SHA1, and SHA256 hashes.
+- **Prioritized Hash Workflow**: Intelligent "ThreatFox -> VirusTotal" flow with user permission.
+- **Fail-Safe Suggestions**: Ambiguous queries now provide structured suggestions.
+- **Standardized Auditing**: All responses include clean `audit` metadata for SOC/IR tracking.
+
+---
+
+## 🛡️ Security & Auditing
+
+Athena is built for high-security environments. We **highly encourage** users to monitor their audit logs:
+- **Location**: `logs/audit.jsonl`
+- **What's tracked**: Every query, detected entity, tool selected, confidence score, and raw API response.
+- **Best Practice**: Feed this file into your SIEM or a local monitoring dashboard to track agentic behavior and catch malicious queries in real-time.
 
 ---
 
@@ -30,11 +43,20 @@ graph TD
 ```
 
 ### The 3-Layer Logic:
-1.  **Deterministic Entity Detection**: Regex-based classification of Technical Identifiers (IPs, URLs, Domains).
+1.  **Deterministic Entity Detection**: Regex-based classification of Technical Identifiers (IPs, URLs, Domains, **and Hashes**).
 2.  **Semantic Intent Matching**: Using `all-MiniLM-L6-v2` to match conversational "vibes" to technical tool capabilities with a configurable threshold.
 3.  **Encapsulated Policy Layer**: Ensures API keys, rate limits, and credit tiers are respected before any network call is made.
 
 ---
+
+## 🛠️ Tools Included
+
+| Tool | Trigger Intent (Examples) | Input Entity | Key Required | Risk Tier |
+|------|---------------------------|--------------|--------------|-----------|
+| **Shodan IP** | "where is this ip", "ports on 1.1.1.1" | Public IP | Yes | Low |
+| **VirusTotal Audit**| "scan vt", "is this hash malicious" | URL, Hash | Yes | Medium |
+| **AbuseIPDB** | "check ip for abuse", "reputation of IP" | Public IP | Yes | Low |
+| **ThreatFox** | "malware hash", "ioc on threatfox" | IP, Domain, URL, Hash | Yes (Auth-Key) | Low |
 
 ## 🚀 Getting Started
 
@@ -81,17 +103,44 @@ ROUTER_THRESHOLD=0.20
 
 ---
 
-## 🔮 Scalability & Future Roadmaps
-This project is built to grow. The registry-based design allows you to add:
-- **Org-Specific TI**: Connect to your internal MISP or SIEM.
-- **TTP Lookups**: Map queries directly to MITRE ATT&CK.
-- **Deep Web Scrapers**: Orchestrate tor-based lookups.
-- **Honeypot Feeds**: Route queries to live decoy events.
+## 🧩 Adding Custom Tools
 
-**To add a new tool:** 
-1. Create `tools/my_tool.py`.
-2. Add a JSON entry in `registry/tools.json`.
-3. The server will automatically pick it up—no routing code changes required!
+Athena is designed for extreme extensibility. You can add your own private intelligence sources in minutes.
+
+### 1. Create the Tool Script
+Add a new file in `tools/` (e.g., `tools/misp_tool.py`):
+```python
+import os
+import requests
+
+def execute(observable: str) -> dict:
+    # Athena automatically passes the detected IP/URL/Hash here
+    api_key = os.getenv('MY_API_KEY')
+    # Use requests to fetch data and return a flat dictionary
+    return {"status": "ok", "verdict": "safe", "data": {...}}
+```
+
+### 2. Register Your Tool
+Add an entry to `registry/tools.json`:
+```json
+{
+  "name": "my_custom_tool",
+  "input_types": ["ip", "hash"],
+  "intents": [
+    "check my internal database for this ip",
+    "search misp for hash",
+    "has our SOC seen this before"
+  ],
+  "risk_tier": "low",
+  "requires_user_approval": false,
+  "enabled": true,
+  "requires_api_key": true,
+  "env_var_name": "MY_API_KEY"
+}
+```
+
+### 3. Restart & Profit
+Restart the Athena server. The Sentence Transformers model will automatically encode your new intents, and Athena will begin routing relevant queries to your tool immediately.
 
 ---
 

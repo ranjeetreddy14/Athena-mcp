@@ -4,17 +4,19 @@ Responsibility: Load and validate tool definitions from JSON.
 """
 import json
 import os
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 @dataclass
 class ToolDefinition:
     name: str
-    input_type: str
+    input_types: List[str]  # Changed from single input_type
     intents: List[str]
     risk_tier: str
     requires_approval: bool
     enabled: bool
+    requires_api_key: bool
+    env_var_name: Optional[str] = None
 
 class ToolRegistry:
     def __init__(self, registry_path: str):
@@ -31,13 +33,20 @@ class ToolRegistry:
                 data = json.load(f)
                 
             for tool_data in data.get('tools', []):
+                # Handle legacy single input_type or new list
+                input_types = tool_data.get('input_types')
+                if not input_types:
+                    input_types = [tool_data.get('input_type', 'unknown')]
+
                 self.tools.append(ToolDefinition(
                     name=tool_data['name'],
-                    input_type=tool_data['input_type'],
+                    input_types=input_types,
                     intents=tool_data['intents'],
                     risk_tier=tool_data.get('risk_tier', 'low'),
                     requires_approval=tool_data.get('requires_user_approval', False),
-                    enabled=tool_data.get('enabled', True)
+                    enabled=tool_data.get('enabled', True),
+                    requires_api_key=tool_data.get('requires_api_key', False),
+                    env_var_name=tool_data.get('env_var_name')
                 ))
         except Exception as e:
             raise RuntimeError(f"Failed to load tool registry: {e}")

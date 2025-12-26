@@ -2,21 +2,29 @@
   "tools": [
     {
       "name": "ip_intel_shodan",
-      "input_type": "ip",
+      "input_types": [
+        "ip"
+      ],
       "intents": [
         "where is this ip located",
         "ip geolocation",
         "ip ownership",
         "public ip exposure",
-        "open ports on ip"
+        "open ports on ip",
+        "where is this ip based"
       ],
       "risk_tier": "low",
       "requires_user_approval": false,
-      "enabled": true
+      "enabled": true,
+      "requires_api_key": true,
+      "env_var_name": "SHODAN_API_KEY"
     },
     {
       "name": "url_scan_virustotal",
-      "input_type": "url",
+      "input_types": [
+        "url",
+        "hash"
+      ],
       "intents": [
         "scan this url",
         "is this website safe",
@@ -25,11 +33,58 @@
         "scan link",
         "security audit of url",
         "malicious link scan",
-        "threat intelligence for url"
+        "threat intelligence for url",
+        "is this url safe",
+        "check malware report for hash",
+        "virustotal report for hash",
+        "audit this hash on virustotal",
+        "is this hash malicious"
+      ],
+      "risk_tier": "medium",
+      "requires_user_approval": true,
+      "enabled": true,
+      "requires_api_key": true,
+      "env_var_name": "VT_API_KEY"
+    },
+    {
+      "name": "abuse_ip_db",
+      "input_types": [
+        "ip"
+      ],
+      "intents": [
+        "check ip for abuse",
+        "is this ip malicious",
+        "abuse score for ip",
+        "has this ip been reported",
+        "ip reputation check"
       ],
       "risk_tier": "low",
       "requires_user_approval": false,
-      "enabled": true
+      "enabled": true,
+      "requires_api_key": true,
+      "env_var_name": "ABUSEIPDB_API_KEY"
+    },
+    {
+      "name": "threatfox_ioc",
+      "input_types": [
+        "ip",
+        "domain",
+        "url",
+        "hash"
+      ],
+      "intents": [
+        "check ioc on threatfox",
+        "malware family for this hash",
+        "has this domain been linked to malware",
+        "threat intelligence for this ioc",
+        "search threatfox for ioc",
+        "malware associations for this ip"
+      ],
+      "risk_tier": "low",
+      "requires_user_approval": false,
+      "enabled": true,
+      "requires_api_key": true,
+      "env_var_name": "THREATFOX_API_KEY"
     }
   ]
 }

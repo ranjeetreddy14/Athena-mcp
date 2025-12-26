@@ -12,7 +12,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from pydantic import BaseModel, Field
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 # Setup Logging (STDERR ONLY)
@@ -38,7 +38,7 @@ def log_audit(entry: Dict[str, Any]):
 from orchestrator.entity import detect_entity
 from orchestrator.router import SemanticRouter
 from orchestrator.registry import ToolRegistry
-from tools import shodan_tool, virustotal_tool
+from tools import shodan_tool, virustotal_tool, abuseipdb_tool, threatfox_tool
 
 # Initialize Orchestrator Components
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,7 +60,9 @@ class ThreatIntelResponse(BaseModel):
     ok: bool
     summary: str
     confidence: float
-    data: Dict[str, Any]
+    data: Optional[Dict[str, Any]] = None
+    audit: Optional[Dict[str, Any]] = None
+    suggestions: Optional[List[str]] = None
 
 import mcp.types as types
 
@@ -125,52 +127,103 @@ async def handle_call_tool(
     # Final Response Construction
     final_response = None
     try:
-        if not route.tool_name:
-            final_response = ThreatIntelResponse(
-                ok=False,
-                summary="Routing failed",
-                confidence=0.0,
-                data={"error": { "type": "routing", "message": route.reason }}
-            )
-        else:
-            # 3. Execute Tool (In a separate thread to avoid blocking the MCP loop)
-            tool_data = {}
-            if route.tool_name == "ip_intel_shodan":
-                tool_data = await asyncio.to_thread(shodan_tool.execute, entity.value)
-            elif route.tool_name == "url_scan_virustotal":
-                tool_data = await asyncio.to_thread(virustotal_tool.execute, entity.value)
-            else:
-                 final_response = ThreatIntelResponse(
-                    ok=False,
-                    summary="Execution failed (Tool Not Found)",
-                    confidence=0.0,
-                    data={"error": { "type": "execution", "message": f"Tool implementation not found for {route.tool_name}" }}
-                )
+        if entity.type.value == "hash":
+            # --- SPECIAL WORKFLOW: Hashes ---
+            # Prioritize ThreatFox unless user explicitly asks for VirusTotal or gives approval
+            vt_keywords = ["virustotal", "vt", "yes", "approve", "confirm", "proceed", "scan vt"]
+            wants_vt = any(word in query.lower() for word in vt_keywords)
 
-            if not final_response:
-                # Check for tool-level errors
-                if "error" in tool_data:
+            if wants_vt:
+                logger.info("Executing VirusTotal (User Approved/Requested for Hash)")
+                tool_data = await asyncio.to_thread(virustotal_tool.execute, entity.value)
+                final_response = ThreatIntelResponse(
+                    ok="error" not in tool_data,
+                    summary=f"Successfully executed VirusTotal scan for hash" if "error" not in tool_data else tool_data.get("error"),
+                    confidence=1.0, # Direct override
+                    data=tool_data if "error" not in tool_data else None,
+                    audit={"tool": "url_scan_virustotal", "entity": "hash", "input": entity.value}
+                )
+            else:
+                logger.info("Executing ThreatFox (Default for Hash)")
+                tool_data = await asyncio.to_thread(threatfox_tool.execute, entity.value)
+                
+                if tool_data.get("status") == "no_result":
                     final_response = ThreatIntelResponse(
                         ok=False,
-                        summary=f"Execution failed in {route.tool_name}",
-                        confidence=route.confidence,
-                        data=tool_data
+                        summary="No results found in ThreatFox.",
+                        confidence=1.0,
+                        suggestions=[
+                            f"Would you like to perform a deeper scan on VirusTotal for this hash? (Reply 'Yes, check VirusTotal')"
+                        ]
                     )
                 else:
-                    # 4. Return Success
                     final_response = ThreatIntelResponse(
-                        ok=True,
-                        summary=f"Successfully executed {route.tool_name}",
-                        confidence=route.confidence,
-                        data=tool_data
+                        ok="error" not in tool_data,
+                        summary=f"Successfully executed ThreatFox" if "error" not in tool_data else tool_data.get("error"),
+                        confidence=1.0,
+                        data=tool_data if "error" not in tool_data else None,
+                        audit={"tool": "threatfox_ioc", "entity": "hash", "input": entity.value}
                     )
 
+        elif not route.tool_name:
+            final_response = ThreatIntelResponse(
+                ok=False,
+                summary="Entity detected but intent was unclear." if entity.type != EntityType.UNKNOWN else "No technical identifier detected.",
+                confidence=route.confidence,
+                suggestions=route.suggestions if route.suggestions else ["Try including an IP, URL, domain, or hash in your query."]
+            )
+        else:
+            # --- STANDARD WORKFLOW: IPs, URLs, Domains ---
+            selected_tool_def = next((t for t in registry.tools if t.name == route.tool_name), None)
+            needs_approval = selected_tool_def and selected_tool_def.requires_approval
+            confirmation_keywords = ["yes", "approve", "confirm", "proceed", "okay", "ok", "go ahead"]
+            is_confirmed = any(word in query.lower() for word in confirmation_keywords)
+
+            if needs_approval and not is_confirmed:
+                final_response = ThreatIntelResponse(
+                    ok=False,
+                    summary=f"Permission Required: Tool '{route.tool_name}' requires explicit user approval.",
+                    confidence=route.confidence,
+                    suggestions=[
+                        f"Reply with 'yes' or 'proceed' to execute {route.tool_name} for this query."
+                    ]
+                )
+            else:
+                # Execute Tool
+                tool_data = {}
+                try:
+                    if route.tool_name == "ip_intel_shodan":
+                        tool_data = await asyncio.to_thread(shodan_tool.execute, entity.value)
+                    elif route.tool_name == "url_scan_virustotal":
+                        tool_data = await asyncio.to_thread(virustotal_tool.execute, entity.value)
+                    elif route.tool_name == "abuse_ip_db":
+                        tool_data = await asyncio.to_thread(abuseipdb_tool.execute, entity.value)
+                    elif route.tool_name == "threatfox_ioc":
+                        tool_data = await asyncio.to_thread(threatfox_tool.execute, entity.value)
+                    else:
+                        tool_data = {"error": f"Tool implementation '{route.tool_name}' not found."}
+                except Exception as e:
+                    tool_data = {"error": f"Tool execution failed: {str(e)}"}
+
+                final_response = ThreatIntelResponse(
+                    ok="error" not in tool_data,
+                    summary=f"Successfully executed {route.tool_name}" if "error" not in tool_data else tool_data.get("error"),
+                    confidence=route.confidence,
+                    data=tool_data if "error" not in tool_data else None,
+                    audit={
+                        "tool": route.tool_name,
+                        "entity": entity.type.value,
+                        "input": entity.value
+                    }
+                )
+
     except Exception as e:
+        error_msg = f"Athena Server Error: {str(e)}"
+        logger.error(error_msg)
         final_response = ThreatIntelResponse(
             ok=False,
-            summary=f"Exception during execution",
-            confidence=0.0,
-            data={"error": { "type": "exception", "message": str(e) }}
+            summary=error_msg,
+            confidence=0.0
         )
 
     # Prepare final dict (for CLI)

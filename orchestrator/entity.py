@@ -11,6 +11,7 @@ class EntityType(str, Enum):
     IP = "ip"
     URL = "url"
     DOMAIN = "domain"
+    HASH = "hash"
     UNKNOWN = "unknown"
 
 class DetectedEntity(NamedTuple):
@@ -30,6 +31,9 @@ URL_PATTERN = r'https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+[^\s]*'
 # Domain: Loose match for domain-like strings (last resort after URL)
 DOMAIN_PATTERN = r'\b((?=[a-z0-9-]{1,63}\.)(xn--)?[a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,63}\b'
 
+# Hashes: MD5 (32), SHA1 (40), SHA256 (64)
+HASH_PATTERN = r'\b(?:[a-fA-F0-9]{64}|[a-fA-F0-9]{40}|[a-fA-F0-9]{32})\b'
+
 def detect_entity(query: str) -> DetectedEntity:
     """
     Detects the primary entity in a query string using strict precedence.
@@ -46,8 +50,13 @@ def detect_entity(query: str) -> DetectedEntity:
     ip_match = re.search(IPV4_PATTERN, query)
     if ip_match:
         return DetectedEntity(EntityType.IP, ip_match.group(0))
+
+    # 3. Hash Check (MD5, SHA1, SHA256)
+    hash_match = re.search(HASH_PATTERN, query)
+    if hash_match:
+        return DetectedEntity(EntityType.HASH, hash_match.group(0))
         
-    # 3. Domain Check (Lowest Specificity)
+    # 4. Domain Check (Lowest Specificity)
     # Caution: IPs can match domain regex, but we checked IP first.
     domain_match = re.search(DOMAIN_PATTERN, query, re.IGNORECASE)
     if domain_match:

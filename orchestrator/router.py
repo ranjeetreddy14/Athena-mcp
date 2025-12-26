@@ -9,7 +9,7 @@ import os
 import numpy as np
 import logging
 from sentence_transformers import SentenceTransformer
-from typing import Optional, Dict, Any, NamedTuple
+from typing import Optional, Dict, Any, NamedTuple, List
 from .entity import EntityType, DetectedEntity
 from .registry import ToolRegistry, ToolDefinition
 
@@ -25,6 +25,7 @@ class RoutingResult(NamedTuple):
     tool_name: Optional[str]
     confidence: float
     reason: str
+    suggestions: List[str] = []
 
 class SemanticRouter:
     def __init__(self, registry: ToolRegistry):
@@ -47,18 +48,42 @@ class SemanticRouter:
             self._cached_embeddings[tool.name] = self.model.encode(tool.intents)
         return self._cached_embeddings[tool.name]
 
+    def _get_suggestions(self, entity_type: EntityType) -> List[str]:
+        """Provides context-aware suggestions for ambiguous queries."""
+        if entity_type == EntityType.IP:
+            return [
+                "Ask about geolocation or infrastructure (Shodan)",
+                "Ask about abuse reputation or reporting (AbuseIPDB)",
+                "Ask about malware associations (ThreatFox)"
+            ]
+        elif entity_type == EntityType.URL or entity_type == EntityType.DOMAIN:
+            return [
+                "Ask about safety or malware scanning (VirusTotal)",
+                "Ask about malware campaigns or detections (ThreatFox)"
+            ]
+        elif entity_type == EntityType.HASH:
+            return [
+                "Ask about malware family or detection history (ThreatFox)"
+            ]
+        return [
+            "Be more specific about what you want to check (e.g. 'scan URL', 'reputation of IP')",
+            "Ensure your query contains a valid IP, URL, or hash"
+        ]
+
     def route_query(self, query: str, entity: DetectedEntity) -> RoutingResult:
         """
-        Routes a query to a tool based on Entity, Intent, and Policy.
+        Layered Routing: 
+        A: Filter tools by entity type
+        B: Semantic match intent
         """
-        # --- LAYER A: Entity Filter ---
-        candidates = [
-            t for t in self.registry.get_enabled_tools()
-            if t.input_type == entity.type.value
-        ]
+        enabled_tools = self.registry.get_enabled_tools()
+        
+        # --- LAYER A: Entity Filtering ---
+        # Only keep tools that support the detected entity type
+        candidates = [t for t in enabled_tools if entity.type.value in t.input_types]
         
         if not candidates:
-            return RoutingResult(None, 0.0, f"No enabled tools for entity type: {entity.type.value}")
+            return RoutingResult(None, 0.0, f"No enabled tools for entity type: {entity.type.value}", [])
 
         # --- LAYER B: Semantic Matching ---
         # 1. Strip entity from query to improve signal
@@ -74,25 +99,27 @@ class SemanticRouter:
         best_score = -1.0
         
         for tool in candidates:
-            # Use cached embeddings
+            # Match query against all intents for this tool
             intent_embeddings = self._get_tool_embeddings(tool)
             
             # shape: (1, 384) . (N, 384).T = (1, N)
-            # Find max similarity across all intents for this tool
             similarities = np.dot(query_embedding, intent_embeddings.T)[0]
-            max_sim = np.max(similarities)
+            max_sim = float(np.max(similarities))
             
             if max_sim > best_score:
                 best_score = max_sim
                 best_tool = tool
 
-        # 3. Check Threshold
+        # --- LAYER C: Threshold Enforcement & Ambiguity Handling ---
         normalized_score = float(best_score)
-        if normalized_score < self.threshold:
-             return RoutingResult(None, normalized_score, f"Intent confidence ({normalized_score:.2f}) below threshold ({self.threshold})")
-
-        # --- LAYER C: Policy Enforcement ---
-        if not best_tool.enabled:
-             return RoutingResult(None, normalized_score, f"Tool '{best_tool.name}' is disabled by policy.")
-
-        return RoutingResult(best_tool.name, normalized_score, "Semantic match passed threshold")
+        if normalized_score >= self.threshold:
+            return RoutingResult(best_tool.name, normalized_score, "Semantic match passed threshold", [])
+        
+        # If below threshold, treat as ambiguous
+        suggestions = self._get_suggestions(entity.type)
+        return RoutingResult(
+            None, 
+            normalized_score, 
+            f"Intent confidence ({normalized_score:.2f}) below threshold ({self.threshold})",
+            suggestions=suggestions
+        )
