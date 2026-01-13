@@ -26,8 +26,10 @@ def execute(ip: str) -> Dict[str, Any]:
         return {"error": f"IP {ip} is private/internal/invalid and cannot be scanned."}
 
     try:
-        url = f"https://api.shodan.io/shodan/host/{ip}?key={api_key}"
-        resp = requests.get(url, timeout=10)
+        # NOTE: Shodan API only supports query parameter auth (not headers).
+        # Using params dict prevents key from appearing in log string representations.
+        url = f"https://api.shodan.io/shodan/host/{ip}"
+        resp = requests.get(url, params={"key": api_key}, timeout=10)
         
         if resp.status_code == 404:
             return {"status": "not_found", "message": "No information available for this IP in Shodan database."}
