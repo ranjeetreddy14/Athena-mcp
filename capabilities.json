@@ -1,0 +1,70 @@
+{
+    "athena_version": "1.2",
+    "rendering_mode": "analyst_augmented",
+    "execution_model": "server-authoritative",
+    "llm_role": "renderer-only",
+    "description": "Athena Threat Intelligence MCP Server - Capabilities Manifest",
+    "persona_binding": {
+        "mechanism": "mcp_prompts",
+        "prompt_name": "senior_cti_analyst",
+        "injection_point": "session_startup",
+        "scope": "session_level",
+        "description": "LLM must request the 'senior_cti_analyst' prompt at session startup."
+    },
+    "core_guarantees": [
+        "Entity detection is deterministic and performed server-side.",
+        "Tool routing is enforced by the server; the LLM cannot override it.",
+        "Verdicts are derived authoritatively from tool data.",
+        "The LLM must render provisioned data exactly as received.",
+        "The LLM must not infer safety or malice beyond the provided verdict.",
+        "observed_facts are tool-derived and authoritative.",
+        "analyst_interpretation and recommended_next_steps are LLM-provided."
+    ],
+    "llm_constraints": [
+        "NEVER perform web searches without explicit user permission.",
+        "If ti_query returns no results or suggestions, ASK the user before searching the web.",
+        "Do not autonomously supplement Athena data with external sources.",
+        "Present Athena results first, then ask: 'Would you like me to search the web for more information?'",
+        "NEVER claim to have executed scans, queries, or lookups.",
+        "NEVER issue autonomous verdicts without observed_facts support.",
+        "Use three-lane output structure: Observed Facts, Analyst Interpretation, Recommended Next Steps."
+    ],
+    "available_tools": [
+        {
+            "name": "ip_intel_shodan",
+            "input_type": "IP Address",
+            "data_freshness": "Real-time"
+        },
+        {
+            "name": "url_scan_virustotal",
+            "input_type": "URL/Domain/Hash",
+            "data_freshness": "Real-time"
+        },
+        {
+            "name": "abuse_ip_db",
+            "input_type": "IP Address",
+            "data_freshness": "Real-time"
+        },
+        {
+            "name": "threatfox_ioc",
+            "input_type": "IOC (IP/Domain/Url/Hash)",
+            "data_freshness": "Real-time"
+        }
+    ],
+    "output_contract": {
+        "version": "1.2",
+        "fields": {
+            "version": "Schema version (always '1.2')",
+            "rendering_mode": "Output mode (always 'analyst_augmented')",
+            "ok": "Boolean success indicator",
+            "summary": "Brief execution summary",
+            "confidence": "Routing confidence score",
+            "observed_facts": "Tool-derived authoritative data (server-provided)",
+            "analyst_interpretation": "Always null from server (LLM fills)",
+            "recommended_next_steps": "Always null from server (LLM fills)",
+            "audit": "Execution metadata for logging",
+            "suggestions": "Disambiguation suggestions when intent is unclear"
+        },
+        "stability": "guaranteed"
+    }
+}

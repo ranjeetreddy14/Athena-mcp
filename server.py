@@ -14,6 +14,20 @@ from pydantic import BaseModel, Field
 import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+import hashlib
+
+# Load Persona Hash at Startup
+def calculate_persona_hash():
+    try:
+        persona_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'persona', 'senior_cti_v1_2.md')
+        if os.path.exists(persona_path):
+            with open(persona_path, 'rb') as f:
+                return hashlib.sha256(f.read()).hexdigest()
+    except Exception as e:
+        sys.stderr.write(f"Warning: Failed to calculate persona hash: {e}\n")
+    return "unknown"
+
+PERSONA_HASH = calculate_persona_hash()
 
 # Setup Logging (STDERR ONLY)
 logging.basicConfig(
@@ -35,7 +49,7 @@ def log_audit(entry: Dict[str, Any]):
         f.write(json.dumps(entry) + '\n')
 
 # Orchestrator Imports
-from orchestrator.entity import detect_entity
+from orchestrator.entity import detect_entity, EntityType
 from orchestrator.router import SemanticRouter
 from orchestrator.registry import ToolRegistry
 from tools import shodan_tool, virustotal_tool, abuseipdb_tool, threatfox_tool
@@ -55,14 +69,35 @@ router = SemanticRouter(registry)
 # Initialize MCP Server
 server = Server("athena")
 
-# Schema Definition
+# Schema Definition (v1.2 - Analyst Augmented)
 class ThreatIntelResponse(BaseModel):
+    version: str = "1.2"
+    rendering_mode: str = "analyst_augmented"
     ok: bool
     summary: str
     confidence: float
-    data: Optional[Dict[str, Any]] = None
+    observed_facts: Optional[Dict[str, Any]] = None  # Tool-derived, authoritative
+    analyst_interpretation: Optional[str] = None      # Always None (LLM fills)
+    recommended_next_steps: Optional[List[str]] = None  # Always None (LLM fills)
     audit: Optional[Dict[str, Any]] = None
     suggestions: Optional[List[str]] = None
+    analysis_constraints: Dict[str, Any] = Field(default_factory=lambda: {
+        "authority": "athena_server",
+        "llm_role": "interpretation_only",
+        "forbidden_outputs": [
+            "malicious verdicts",
+            "benign verdicts",
+            "severity ratings",
+            "attribution claims",
+            "imperative remediation"
+        ],
+        "allowed_outputs": [
+            "contextual hypotheses",
+            "historical usage patterns",
+            "ttp-level mapping",
+            "investigative suggestions"
+        ]
+    })
 
 import mcp.types as types
 
@@ -71,7 +106,21 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="ti_query",
-            description="Specialized Security & Threat Intel tool. Triggers on requests to 'scan', 'check', or 'analyze' IPs and URLs for malicious activity, malware, reputation, and exposure. Use this for security verdicts and technical infrastructure lookups.",
+            description="""AUTHORITATIVE TELEMETRY TOOL.
+
+This tool returns deterministic threat intelligence facts produced by the Athena server.
+You are operating strictly as a Senior CTI Analyst providing contextual interpretation only.
+
+CONSTRAINTS:
+- Do NOT declare maliciousness or benignness.
+- Do NOT assign severity or attribution.
+- Do NOT issue verdicts or conclusions.
+- Do NOT imply certainty beyond the provided data.
+
+REQUIRED RESPONSE STRUCTURE:
+1) Observed Facts (verbatim from tool output only)
+2) Analyst Interpretation (training-based hypotheses; explicitly labeled)
+3) Recommended Next Steps (non-binding investigative suggestions)""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -84,6 +133,70 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         )
     ]
+
+# ---------------------------------------------------------------------
+# Resource Exposure (Capability Manifest + Persona)
+# Goal: Allow LLMs to inspect server capabilities and receive persona binding.
+# ---------------------------------------------------------------------
+@server.list_resources()
+async def handle_list_resources() -> list[types.Resource]:
+    """Expose server resources: Capability Manifest."""
+    return [
+        types.Resource(
+            uri=types.AnyUrl("ti://capabilities"),
+            name="Athena Capability Manifest",
+            description="Static description of server guarantees, tools, and execution model.",
+            mimeType="application/json"
+        )
+    ]
+
+@server.read_resource()
+async def handle_read_resource(uri: types.AnyUrl) -> str | bytes:
+    """Read server resources."""
+    if uri.scheme != "ti":
+        raise ValueError(f"Unsupported URI scheme: {uri.scheme}")
+
+    if uri.path == "capabilities":
+        manifest_path = os.path.join(BASE_DIR, 'capabilities.json')
+        if os.path.exists(manifest_path):
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        return "{}"
+
+    raise ValueError(f"Unknown resource: {uri}")
+
+# ---------------------------------------------------------------------
+# Prompts Capability (System Injection)
+# Goal: Allow LLMs to request the Senior CTI Persona at session startup.
+# ---------------------------------------------------------------------
+@server.list_prompts()
+async def handle_list_prompts() -> list[types.Prompt]:
+    return [
+        types.Prompt(
+            name="senior_cti_analyst",
+            description="Senior CTI Analyst Persona. MUST be applied at session startup.",
+            arguments=[]
+        )
+    ]
+
+@server.get_prompt()
+async def handle_get_prompt(name: str, arguments: dict | None) -> types.GetPromptResult:
+    if name == "senior_cti_analyst":
+        persona_path = os.path.join(BASE_DIR, 'persona', 'senior_cti_v1_2.md')
+        content = "Persona file missing."
+        if os.path.exists(persona_path):
+            with open(persona_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        
+        return types.GetPromptResult(
+            messages=[
+                types.PromptMessage(
+                    role="user",
+                    content=types.TextContent(type="text", text=content)
+                )
+            ]
+        )
+    raise ValueError(f"Unknown prompt: {name}")
 
 @server.call_tool()
 async def handle_call_tool(
@@ -116,7 +229,9 @@ async def handle_call_tool(
         "entity_detected": f"{entity.type.value}: {entity.value}",
         "routing_reason": route.reason,
         "selected_tool": route.tool_name,
-        "confidence": route.confidence
+        "confidence": route.confidence,
+        "persona": "senior_cti_v1_2",
+        "persona_hash": PERSONA_HASH
     }
 
     # Create Reasoning String
@@ -140,7 +255,7 @@ async def handle_call_tool(
                     ok="error" not in tool_data,
                     summary=f"Successfully executed VirusTotal scan for hash" if "error" not in tool_data else tool_data.get("error"),
                     confidence=1.0, # Direct override
-                    data=tool_data if "error" not in tool_data else None,
+                    observed_facts=tool_data if "error" not in tool_data else None,
                     audit={"tool": "url_scan_virustotal", "entity": "hash", "input": entity.value}
                 )
             else:
@@ -161,7 +276,7 @@ async def handle_call_tool(
                         ok="error" not in tool_data,
                         summary=f"Successfully executed ThreatFox" if "error" not in tool_data else tool_data.get("error"),
                         confidence=1.0,
-                        data=tool_data if "error" not in tool_data else None,
+                        observed_facts=tool_data if "error" not in tool_data else None,
                         audit={"tool": "threatfox_ioc", "entity": "hash", "input": entity.value}
                     )
 
@@ -209,7 +324,7 @@ async def handle_call_tool(
                     ok="error" not in tool_data,
                     summary=f"Successfully executed {route.tool_name}" if "error" not in tool_data else tool_data.get("error"),
                     confidence=route.confidence,
-                    data=tool_data if "error" not in tool_data else None,
+                    observed_facts=tool_data if "error" not in tool_data else None,
                     audit={
                         "tool": route.tool_name,
                         "entity": entity.type.value,

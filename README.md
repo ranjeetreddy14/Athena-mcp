@@ -1,4 +1,4 @@
-# 🦅 Athena (v1.1)
+# 🦅 Athena (v1.2)
 
 [![MCP](https://img.shields.io/badge/MCP-1.0-blue)](https://modelcontextprotocol.io)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-green)](https://python.org)
@@ -6,13 +6,14 @@
 
 Athena is a high-performance **Model Context Protocol (MCP)** server Runtime designed for autonomous threat intelligence orchestration. It bridges the gap between natural language security queries and technical intelligence APIs like Shodan and VirusTotal.
 
-## 🚀 What's New in v1.1?
+## 🚀 What's New in v1.2?
 
-- **Expanded Threat Intelligence**: Added **AbuseIPDB** and **ThreatFox** (abuse.ch).
-- **IOC Hash Support**: Now detects and routes MD5, SHA1, and SHA256 hashes.
-- **Prioritized Hash Workflow**: Intelligent "ThreatFox -> VirusTotal" flow with user permission.
-- **Fail-Safe Suggestions**: Ambiguous queries now provide structured suggestions.
-- **Standardized Auditing**: All responses include clean `audit` metadata for SOC/IR tracking.
+- **Analyst-Augmented Output**: Responses now use a three-lane structure: `observed_facts` (Athena-provided), `analyst_interpretation` (LLM-rendered), and `recommended_next_steps` (LLM-rendered).
+- **Senior CTI Persona Prompt**: LLMs must request the `senior_cti_analyst` MCP Prompt at session startup to inject the Senior CTI Analyst persona.
+- **Audit Hashing**: Every response includes a `persona_hash` (SHA256) in the audit block for verification.
+- **Clean Separation of Authority**: Athena provides authoritative facts; the LLM provides interpretive analysis. Never the other way around.
+- **Schema Version Flags**: All responses include `version: "1.2"` and `rendering_mode: "analyst_augmented"`.
+- **Enhanced Guardrails**: The persona explicitly prohibits the LLM from claiming execution, issuing verdicts, or fabricating data.
 
 ---
 
