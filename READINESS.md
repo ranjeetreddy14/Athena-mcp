@@ -2,14 +2,14 @@
 
 ## Status after v1.2.1 (stabilisation)
 
-**All findings from the original assessment (below) are resolved, except the two noted under "Still open".** From a brand-new Python 3.11.5 environment built only from `uv.lock`, bare `pytest` gives:
+**All findings from the original assessment (below) are resolved; see "Still open" for what remains.** From a brand-new Python 3.11.5 environment built only from `uv.lock`, bare `pytest` gives:
 
 | Hugging Face cache | Result |
 |---|---|
-| model present, offline | **46 passed** |
-| model absent, offline | **41 passed, 5 skipped** (the 5 `requires_model` tests, with an explanatory message; nothing downloaded) |
+| model present, offline | **52 passed** |
+| model absent, offline | **47 passed, 5 skipped** (the 5 `requires_model` tests, with an explanatory message; nothing downloaded) |
 
-46 = the original 23 + 23 new tests (hash rule and audit entry: 12; isolation guards and lazy loading: 11). The real `logs/audit.jsonl` was not touched by any run (46 lines before and after), and `.env` was never opened (an audit-hook tripwire in `tests/conftest.py` raises if it is).
+52 = the original 23 + 29 new tests (hash rule and audit entry: 12; isolation guards and lazy loading: 11; `ti://capabilities`: 6). The real `logs/audit.jsonl` was not touched by any run (46 lines before and after), and `.env` was never opened (an audit-hook tripwire in `tests/conftest.py` raises if it is).
 
 | Original finding | Resolution |
 |---|---|
@@ -21,6 +21,7 @@
 | Model needed by tests | Marked `requires_model`, skipped with a message when the cache is empty |
 | `generate_report_pdf.py` | Deleted |
 | `.env.example` | Rewritten: all 4 keys plus `ROUTER_THRESHOLD`, `ATHENA_AUDIT_PATH`, `ATHENA_ENV_FILE` |
+| `ti://capabilities` unreadable (found in the v1.2.1 stdio smoke test) | Fixed: `server.py` matched `uri.path`, but `ti://capabilities` parses `capabilities` as the host. `athena_version` bumped `1.2` → `1.2.1` and tied to `pyproject.toml` by a test, because TriageLoop records it per case. Verified through a real MCP client on mcp 1.30; `tests/test_capabilities.py` fails 3/6 against the old line |
 
 **Lazy loading holds.** The embedding model is constructed only on the first IP/URL/domain query that reaches the similarity router. These never construct it (each tested with a sentinel that fails if it is built): importing `server`, `list_tools`, `list_prompts`, `list_resources`, `get_prompt`, queries with no entity, and all hash queries. I also drove the real server over stdio and confirmed the model-load log line never appears. A first IP/URL/domain `ti_query` still loads the model, by design; I did not change `ti_query` behaviour.
 
@@ -33,8 +34,7 @@
 6. Audit-log entries for hashes now show `confidence: 1.0` and a `hash_rule` reason (was a meaningless similarity score). Entries gain two keys (`routing`, `executed_tool`). Response JSON from `ti_query` is unchanged.
 
 **Still open:**
-- **`ti://capabilities` cannot be read** (pre-existing, found during the stdio smoke test, not caused by this work): `server.py:159` checks `uri.path == "capabilities"`, but `AnyUrl("ti://capabilities").path` is `None` (the name is parsed as the host), so the call raises "Unknown resource". The check line is unchanged from HEAD, and `AnyUrl(...).path` is also `None` under pydantic 2.12 (your old `.venv`); I did not run the full resource read on mcp 1.25. Not in scope, so not fixed; recorded in CHANGELOG as a known issue.
-- **Section 5 (READINESS CHECKLIST)** still can't be assessed: the brief containing it was not provided in either message.
+- **Section 5 (READINESS CHECKLIST)** still can't be assessed: `INTEGRATION_READINESS.md` is not in the repo or anywhere on this machine. It must be added before the §5 mapping is done.
 - Not verified: install on Linux/macOS (the lock has the right wheels, but I only ran Windows), any live API call, and PyPI deprecation/CVE status. No CI exists yet. VirusTotal/AbuseIPDB/ThreatFox tool modules still have no unit tests.
 
 ---

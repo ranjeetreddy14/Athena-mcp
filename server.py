@@ -162,7 +162,7 @@ async def handle_read_resource(uri: types.AnyUrl) -> str | bytes:
     if uri.scheme != "ti":
         raise ValueError(f"Unsupported URI scheme: {uri.scheme}")
 
-    if uri.path == "capabilities":
+    if (uri.host or (uri.path or "").strip("/")) == "capabilities":  # ti://capabilities parses "capabilities" as the host
         manifest_path = os.path.join(BASE_DIR, 'capabilities.json')
         if os.path.exists(manifest_path):
             with open(manifest_path, 'r', encoding='utf-8') as f:

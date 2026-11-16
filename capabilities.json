@@ -1,5 +1,5 @@
 {
-    "athena_version": "1.2",
+    "athena_version": "1.2.1",
     "rendering_mode": "analyst_augmented",
     "execution_model": "server-authoritative",
     "llm_role": "renderer-only",
