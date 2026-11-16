@@ -38,13 +38,19 @@ logging.basicConfig(
 logger = logging.getLogger("ti-mcp-server")
 
 # Audit Logging (File)
+# Location: $ATHENA_AUDIT_PATH if set, else <repo>/logs/audit.jsonl.
+# Resolved at write time (not import time) so it can be set via the environment or .env.
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-os.makedirs(LOG_DIR, exist_ok=True)
-AUDIT_LOG_FILE = os.path.join(LOG_DIR, 'audit.jsonl')
+DEFAULT_AUDIT_LOG_FILE = os.path.join(LOG_DIR, 'audit.jsonl')
+
+def get_audit_path() -> str:
+    return os.environ.get('ATHENA_AUDIT_PATH') or DEFAULT_AUDIT_LOG_FILE
 
 def log_audit(entry: Dict[str, Any]):
     """Appends a JSON entry to the audit log."""
-    with open(AUDIT_LOG_FILE, 'a') as f:
+    audit_path = get_audit_path()
+    os.makedirs(os.path.dirname(os.path.abspath(audit_path)), exist_ok=True)
+    with open(audit_path, 'a') as f:
         entry['timestamp'] = datetime.now().isoformat()
         f.write(json.dumps(entry) + '\n')
 
@@ -57,8 +63,8 @@ from tools import shodan_tool, virustotal_tool, abuseipdb_tool, threatfox_tool
 # Initialize Orchestrator Components
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Load Env
-load_dotenv(os.path.join(BASE_DIR, '.env'))
+# Load Env ($ATHENA_ENV_FILE overrides the default <repo>/.env; the test suite points it at a non-existent file)
+load_dotenv(os.environ.get('ATHENA_ENV_FILE') or os.path.join(BASE_DIR, '.env'))
 
 # Initialize Orchestrator Components
 REGISTRY_PATH = os.path.join(BASE_DIR, 'registry', 'tools.json')
@@ -230,6 +236,8 @@ async def handle_call_tool(
         "routing_reason": route.reason,
         "selected_tool": route.tool_name,
         "confidence": route.confidence,
+        "routing": route.method,  # "hash_rule" | "semantic" | "entity_filter"
+        "executed_tool": None,    # set below to the tool that actually ran
         "persona": "senior_cti_v1_2",
         "persona_hash": PERSONA_HASH
     }
@@ -244,12 +252,13 @@ async def handle_call_tool(
     try:
         if entity.type.value == "hash":
             # --- SPECIAL WORKFLOW: Hashes ---
-            # Prioritize ThreatFox unless user explicitly asks for VirusTotal or gives approval
-            vt_keywords = ["virustotal", "vt", "yes", "approve", "confirm", "proceed", "scan vt"]
-            wants_vt = any(word in query.lower() for word in vt_keywords)
+            # Hash rule lives in the router (routing="hash_rule"): ThreatFox unless the user
+            # explicitly asks for VirusTotal or gives approval.
+            wants_vt = route.tool_name == "url_scan_virustotal"
 
             if wants_vt:
                 logger.info("Executing VirusTotal (User Approved/Requested for Hash)")
+                audit["executed_tool"] = "url_scan_virustotal"
                 tool_data = await asyncio.to_thread(virustotal_tool.execute, entity.value)
                 final_response = ThreatIntelResponse(
                     ok="error" not in tool_data,
@@ -260,6 +269,7 @@ async def handle_call_tool(
                 )
             else:
                 logger.info("Executing ThreatFox (Default for Hash)")
+                audit["executed_tool"] = "threatfox_ioc"
                 tool_data = await asyncio.to_thread(threatfox_tool.execute, entity.value)
                 
                 if tool_data.get("status") == "no_result":
@@ -306,6 +316,7 @@ async def handle_call_tool(
             else:
                 # Execute Tool
                 tool_data = {}
+                audit["executed_tool"] = route.tool_name
                 try:
                     if route.tool_name == "ip_intel_shodan":
                         tool_data = await asyncio.to_thread(shodan_tool.execute, entity.value)

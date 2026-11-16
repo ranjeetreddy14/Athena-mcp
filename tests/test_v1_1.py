@@ -1,4 +1,6 @@
 import unittest
+
+import pytest
 from orchestrator.entity import detect_entity, EntityType
 from orchestrator.registry import ToolRegistry
 from orchestrator.router import SemanticRouter
@@ -16,6 +18,7 @@ class TestAthenaV11(unittest.TestCase):
             self.assertEqual(entity.type, EntityType.HASH)
             self.assertEqual(entity.value, h)
 
+    @pytest.mark.requires_model
     def test_multi_input_routing(self):
         """Test that tools are filtered correctly by multiple input types."""
         # Use a real tools.json for testing
@@ -24,18 +27,28 @@ class TestAthenaV11(unittest.TestCase):
         registry = ToolRegistry(registry_path)
         router = SemanticRouter(registry)
         
-        # ThreatFox should handle IP, Domain, URL, and Hash
+        # ThreatFox should handle IP, Domain and URL via the similarity router...
         for query, e_type in [
             ("check ip 1.1.1.1 on threatfox", EntityType.IP),
             ("has malware been seen on example.com", EntityType.DOMAIN),
             ("check link http://malicious.cat on threatfox", EntityType.URL),
-            ("search threatfox for hash 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", EntityType.HASH)
         ]:
             entity = detect_entity(query)
             self.assertEqual(entity.type, e_type)
             route = router.route_query(query, entity)
             self.assertEqual(route.tool_name, "threatfox_ioc")
+            self.assertEqual(route.method, "semantic")
 
+        # ...but hashes skip the similarity router entirely and are routed by rule.
+        # (Previously VirusTotal's hash intents out-scored ThreatFox here by 0.0014.)
+        query = "search threatfox for hash 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        entity = detect_entity(query)
+        self.assertEqual(entity.type, EntityType.HASH)
+        route = router.route_query(query, entity)
+        self.assertEqual(route.tool_name, "threatfox_ioc")
+        self.assertEqual(route.method, "hash_rule")
+
+    @pytest.mark.requires_model
     def test_ambiguous_query_suggestions(self):
         """Test that ambiguous queries return helpful suggestions."""
         registry_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'registry', 'tools.json')

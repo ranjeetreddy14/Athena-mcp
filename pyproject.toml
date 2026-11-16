@@ -1,0 +1,46 @@
+[project]
+name = "athena-mcp"
+version = "1.2.1"
+description = "Athena: Threat Intelligence MCP server with semantic tool routing"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+
+# Every third-party import in server.py, orchestrator/ and tools/.
+dependencies = [
+    # mcp 2.x removed the decorator API used by server.py (Server.list_tools etc.).
+    # Migrating to 2.x is a tracked future item (see CHANGELOG), so stay on 1.x.
+    "mcp>=1.25,<2",
+    "pydantic>=2.0",             # server.py (direct import; also an mcp dependency)
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+    "numpy>=2.0",
+    "sentence-transformers>=5.2",
+    # Not imported directly: sentence-transformers needs it. Declared here so the CPU-only
+    # build (see [tool.uv.sources]) is used instead of the multi-GB CUDA wheels on Linux.
+    "torch>=2.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false  # application, not a library: nothing to build or install
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true  # only used for packages pinned to it in [tool.uv.sources]
+
+[tool.uv.sources]
+# PyPI already ships CPU-only torch for macOS; Linux/Windows get the CPU index.
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux' or sys_platform == 'win32'" }]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "requires_model: needs the all-MiniLM-L6-v2 embedding model in the local Hugging Face cache (skipped when it is absent)",
+]

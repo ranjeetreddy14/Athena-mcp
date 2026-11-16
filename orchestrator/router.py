@@ -21,11 +21,18 @@ logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 MODEL_NAME = 'all-MiniLM-L6-v2'
 DEFAULT_THRESHOLD = 0.30
 
+# Hash rule (deterministic, bypasses the similarity router entirely).
+# Hashes default to ThreatFox; VirusTotal only when the user asks for / approves it.
+HASH_DEFAULT_TOOL = "threatfox_ioc"
+HASH_VT_TOOL = "url_scan_virustotal"
+HASH_VT_KEYWORDS = ["virustotal", "vt", "yes", "approve", "confirm", "proceed", "scan vt"]
+
 class RoutingResult(NamedTuple):
     tool_name: Optional[str]
     confidence: float
     reason: str
     suggestions: List[str] = []
+    method: str = "semantic"  # "semantic" | "hash_rule" | "entity_filter" (recorded in the audit log)
 
 class SemanticRouter:
     def __init__(self, registry: ToolRegistry):
@@ -70,20 +77,32 @@ class SemanticRouter:
             "Ensure your query contains a valid IP, URL, or hash"
         ]
 
+    @staticmethod
+    def _route_hash(query: str) -> RoutingResult:
+        """Hash rule: ThreatFox by default, VirusTotal only on explicit request/approval."""
+        wants_vt = any(word in query.lower() for word in HASH_VT_KEYWORDS)
+        if wants_vt:
+            return RoutingResult(HASH_VT_TOOL, 1.0, "hash_rule: VirusTotal requested/approved by user", [], "hash_rule")
+        return RoutingResult(HASH_DEFAULT_TOOL, 1.0, "hash_rule: default ThreatFox for hashes", [], "hash_rule")
+
     def route_query(self, query: str, entity: DetectedEntity) -> RoutingResult:
         """
         Layered Routing: 
         A: Filter tools by entity type
         B: Semantic match intent
         """
+        # --- HASH RULE: deterministic, never touches the embedding model ---
+        if entity.type == EntityType.HASH:
+            return self._route_hash(query)
+
         enabled_tools = self.registry.get_enabled_tools()
-        
+
         # --- LAYER A: Entity Filtering ---
         # Only keep tools that support the detected entity type
         candidates = [t for t in enabled_tools if entity.type.value in t.input_types]
-        
+
         if not candidates:
-            return RoutingResult(None, 0.0, f"No enabled tools for entity type: {entity.type.value}", [])
+            return RoutingResult(None, 0.0, f"No enabled tools for entity type: {entity.type.value}", [], "entity_filter")
 
         # --- LAYER B: Semantic Matching ---
         # 1. Strip entity from query to improve signal

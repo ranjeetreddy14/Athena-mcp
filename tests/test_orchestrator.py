@@ -5,6 +5,8 @@ import unittest
 import os
 import sys
 
+import pytest
+
 # Add parent to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -33,6 +35,7 @@ class TestOrchestrator(unittest.TestCase):
         # Unknown
         self.assertEqual(detect_entity("Hello world").type, EntityType.UNKNOWN)
 
+    @pytest.mark.requires_model
     def test_router_shodan(self):
         query = "Where is 8.8.8.8 located?"
         entity = detect_entity(query)
@@ -41,6 +44,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(result.tool_name, "ip_intel_shodan")
         self.assertTrue(result.confidence > 0.30)
 
+    @pytest.mark.requires_model
     def test_router_virustotal(self):
         query = "Scan https://malicious-site.com/login"
         entity = detect_entity(query)
@@ -49,6 +53,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(result.tool_name, "url_scan_virustotal")
         self.assertTrue(result.confidence > 0.30)
 
+    @pytest.mark.requires_model
     def test_router_type_mismatch(self):
         # Query asking for URL scan but providing an IP entity
         # Should fail Layer A (Entity Filter)

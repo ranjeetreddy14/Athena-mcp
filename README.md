@@ -1,7 +1,7 @@
 # 🦅 Athena (v1.2)
 
 [![MCP](https://img.shields.io/badge/MCP-1.0-blue)](https://modelcontextprotocol.io)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-green)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-green)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 Athena is a high-performance **Model Context Protocol (MCP)** server Runtime designed for autonomous threat intelligence orchestration. It bridges the gap between natural language security queries and technical intelligence APIs like Shodan and VirusTotal.
@@ -62,35 +62,35 @@ graph TD
 ## 🚀 Getting Started
 
 ### 1. Requirements
-- Python 3.10+
-- Pip
-- API Keys for Shodan and/or VirusTotal (for now, more tools to come!)
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/)
+- API keys for the tools you want to use (Shodan, VirusTotal, AbuseIPDB, ThreatFox)
 
 ### 2. Basic Installation
 
-> [!WARNING]
-> This project is designed to be lightweight. **Do NOT install the CUDA/GPU version of PyTorch**, as it will significantly increase the environment size and may cause compatibility issues. Use the CPU-only version as shown below.
+> [!NOTE]
+> This project is designed to be lightweight. `pyproject.toml` pins **CPU-only PyTorch** on Linux and Windows, so `uv sync` will not pull the multi-GB CUDA build.
 
 ```bash
 # Clone the repository
 git clone https://github.com/ranjeetreddy14/Athena-mcp.git
 cd Athena-mcp
 
-# Setup Virtual Environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# Create .venv and install exact versions from uv.lock
+uv sync
 
-# Install Dependencies (Lightweight CPU-only)
-pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt
+# Run the server (stdio)
+uv run python server.py
 ```
 
 ### 3. Configuration
-Create a `.env` file in the root directory:
+Copy `.env.example` to `.env` and fill in your keys (all variables are documented there):
 ```env
 SHODAN_API_KEY=your_shodan_key
 VT_API_KEY=your_vt_key
-ROUTER_THRESHOLD=0.20
+ABUSEIPDB_API_KEY=your_abuseipdb_key
+THREATFOX_API_KEY=your_threatfox_key
+ROUTER_THRESHOLD=0.30
 ```
 
 ---
