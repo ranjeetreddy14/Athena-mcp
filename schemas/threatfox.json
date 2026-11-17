@@ -2,15 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ranjeetreddy14/Athena-mcp/schemas/threatfox.json",
   "title": "Athena observed_facts: threatfox (tool threatfox_ioc)",
-  "description": "Output of tools/threatfox_tool.execute() on success. Errors are never observed_facts. Known issue (v1.3.0): ioc_type and threat_type are always null because the tool reads ThreatFox fields that do not exist (ioc_type_full, threat_type_full); left unchanged because ti_query output must not change in this release.",
+  "description": "Output of tools/threatfox_tool.execute() on success. Errors are never observed_facts. ioc_type and threat_type are ThreatFox's machine codes and are always present on a match (they were always null before v1.3.1 because of a tool bug).",
   "oneOf": [
     {
       "title": "match",
       "type": "object",
       "properties": {
         "ioc": {"type": "string"},
-        "ioc_type": {"type": ["string", "null"]},
-        "threat_type": {"type": ["string", "null"]},
+        "ioc_type": {"type": "string", "minLength": 1, "description": "ThreatFox code, e.g. sha256_hash, md5_hash, ip:port, domain, url"},
+        "threat_type": {"type": "string", "minLength": 1, "description": "ThreatFox code, e.g. payload, botnet_cc, payload_delivery"},
         "malware_family": {"type": ["string", "null"]},
         "confidence": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
         "first_seen": {"type": ["string", "null"]},

@@ -1,5 +1,22 @@
 # READINESS — Athena (ti-mcp-server)
 
+## Status after v1.3.1 (ThreatFox type codes)
+
+**ThreatFox `ioc_type` / `threat_type` are fixed** (they were always `null`; TriageLoop's post-check reads them). From a brand-new Python 3.11.5 env built only from `uv.lock` (mcp 1.30.0), offline, dummy keys:
+
+| Hugging Face cache | Result |
+|---|---|
+| model present | **268 passed** |
+| model absent | **263 passed, 5 skipped** (nothing downloaded) |
+
+- **`ti_query` golden diff vs v1.3.0:** 19 cases, 18 identical. Two cases were added this release that run the real ThreatFox tool against the recorded fixture. The single difference is the intended fix: `observed_facts.ioc_type` `null` → `"sha256_hash"` and `threat_type` `null` → `"payload"`.
+- **Injected-bug check re-run on v1.3.1:** 7 of 7 caught, including reverting this fix (4 tests fail). The table is in README "How Athena is verified".
+- **Fixture not re-recorded.** `fixtures/threatfox.json` already held ThreatFox's real `ioc_type` / `threat_type`; only the test assertion and the schema encoded the bug. Both are corrected, and the schema now rejects `null`.
+- **Stdio check:** `ti://capabilities` reports `athena_version` 1.3.1; the model never loads.
+- **Still open:** INTEGRATION_READINESS.md is not yet in the repo, so §5 still maps the Session 3 brief's bullet list.
+
+---
+
 ## Status after v1.3.0 (agentic mode)
 
 **Every Agentic-mode checklist item (§5) is done and every constraint held.** A1–A11, C1–C7 and R1–R5 are listed in §5. From a brand-new Python 3.11.5 environment built only from `uv.lock` (mcp 1.30.0), offline, with dummy keys only:
@@ -24,10 +41,10 @@ How we know the tests bite: six deliberate bugs were injected, one per guarantee
 
 **Open (needs your decision):**
 - **INTEGRATION_READINESS.md is still not in the repo.** §5 maps the brief's bullet list; if the real file has more items, they are not covered.
-- **ThreatFox `ioc_type` / `threat_type` are always `null`** (pre-existing tool bug, confirmed against the live API). Fixing it changes `ti_query` output, which this release must not do.
-- **`caller` is self-declared**, so `trusted_callers` is policy, not authentication. That is fine for a stdio child process; it is not enough if Athena is exposed more widely.
+- **ThreatFox `ioc_type` / `threat_type` are always `null`.** Resolved: fixed in v1.3.1.
+- **`caller` is self-declared.** Resolved: confirmed as the intended design and documented in the README ("policy, not authentication; agentic mode assumes a local stdio parent process that controls the server").
 - **Shodan's "malicious" fixture is a 404.** The ThreatFox C2 IP is not in Shodan, so that fixture covers the not-found path rather than a malicious host record.
-- `v1.3.0` is tagged locally and **not pushed**.
+- **`v1.3.0` not pushed.** Resolved: pushed with `main`.
 
 ---
 

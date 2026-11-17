@@ -12,6 +12,7 @@ Athena is a high-performance **Model Context Protocol (MCP)** server Runtime des
 - **Shared response cache** for `ti_query` and the agentic tools.
 - **JSON Schemas** for every source's `observed_facts` in `schemas/`, and recorded provider fixtures in `fixtures/`.
 - `ti_query`, the persona and the three-lane output contract are unchanged.
+- **v1.3.1:** ThreatFox matches now report `ioc_type` and `threat_type`; both were always `null` before.
 
 ## What's New in v1.2?
 
@@ -132,7 +133,8 @@ Agentic mode adds two MCP tools beside `ti_query`:
 Reason codes: `invalid_request`, `unknown_source`, `source_disabled`, `invalid_indicator_type`, `unsupported_indicator_type`, `invalid_indicator`, `non_routable_ip`, `approval_required`, `missing_api_key`, `upstream_rate_limited`, `upstream_error`, `config_error`, `batch_too_large`, `internal_error`.
 
 **What agentic mode will not do:**
-- **No judgements.** It never returns a verdict, severity, attribution or remediation. VirusTotal's derived `verdict` field is removed; the engine counts remain. A tripwire test enforces this on every recorded fixture and every failure path.
+- **No judgements.** It never returns a verdict, severity, attribution or remediation. A tripwire test enforces this on every recorded fixture and every failure path.
+  - **Why VirusTotal's `verdict` is missing from `ti_lookup`:** this is deliberate. The VirusTotal tool turns engine counts into a `safe` / `suspicious` / `malicious` label, and that label is a judgement, not something VirusTotal reported. Athena's principle is that the server owns facts and the consumer owns judgement. So `ti_lookup` returns the engine counts (`malicious_count`, `total_engines`, ...) and leaves the conclusion to TriageLoop. `ti_query` keeps the field for v1.2 compatibility.
 - **No queries to private targets.** Private, loopback and link-local IPs are rejected, the same rule `ti_query` uses. URLs pointing at such hosts, or at `localhost`, are rejected too.
 - **No embedding model.** It never loads the model and never does natural-language routing.
 
@@ -141,13 +143,38 @@ Reason codes: `invalid_request`, `unknown_source`, `source_disabled`, `invalid_i
 {"trusted_callers": ["triageloop"], "medium_risk_requires_approval": true,
  "cache": {"dir": "cache", "ttl_seconds": 3600}}
 ```
-Low-risk sources are always allowed. Medium-risk sources (VirusTotal) need the caller to be in `trusted_callers`, unless `medium_risk_requires_approval` is `false`. Otherwise the call returns `approval_required`. Defaults are fail-safe: no trusted callers, approval required. `caller` is self-declared: it is policy, not authentication.
+Low-risk sources are always allowed. Medium-risk sources (VirusTotal) need the caller to be in `trusted_callers`, unless `medium_risk_requires_approval` is `false`. Otherwise the call returns `approval_required`. Defaults are fail-safe: no trusted callers, approval required.
+
+> [!IMPORTANT]
+> **`trusted_callers` is policy, not authentication; agentic mode assumes a local stdio parent process that controls the server.** `caller` is whatever the calling process declares; Athena does not verify it. This is deliberate: TriageLoop launches Athena as its own stdio child process, so anything that can call Athena already controls it. Do not expose agentic mode over a network transport without adding real caller authentication.
 
 **Cache.** Results are cached on disk per `(source, indicator)` for `ttl_seconds` (default 3600; `0` disables). The cache is shared with `ti_query` and stores only successful lookups. Override with `ATHENA_CACHE_DIR` / `ATHENA_CACHE_TTL`. A cache hit returns `"cached": true`.
 
 **Audit.** Every agentic call writes one entry to the audit log (one per item for batches) with `routing: "agentic"`, `caller`, `source`, `indicator_type`, `indicator`, `executed_tool` (`null` if nothing ran), `cache_hit`, `ok`, `reason`, and `batch_id`/`batch_index` for batches.
 
 **Discovery.** `ti://capabilities` lists all MCP tools and carries `athena_version` (the value TriageLoop records), plus an `agentic_mode` block with the contract version, sources, reason codes and limits.
+
+---
+
+## ✅ How Athena is verified
+
+`uv run pytest` runs the whole suite offline with dummy API keys: 268 tests in v1.3.1. Guards in `tests/conftest.py` make any test fail that reads `.env`, writes the real audit log, cache or config, or opens a network connection. Tests that need the embedding model skip, with a message, when it isn't cached.
+
+**Do the tests actually catch bugs?** For each guarantee below, a deliberate bug was injected into the code and the full suite re-run. Every bug was caught (v1.3.1):
+
+| Injected bug | Guarantee it breaks | Tests that failed |
+|---|---|---|
+| `ti_lookup` passes VirusTotal's `verdict` through | no judgements in agentic output | 6 |
+| untrusted caller allowed a medium-risk source | approval policy | 3 |
+| private IPs accepted | no lookups of internal addresses | 16 |
+| agentic path calls the semantic router | agentic mode never loads the model | 131 |
+| MCP SDK input validation re-enabled | non-interactive error contract | 13 |
+| `ti_query` bypasses the response cache | shared cache | 2 |
+| ThreatFox `ioc_type`/`threat_type` revert to `null` | v1.3.1 fix | 4 |
+
+**`ti_query` must not change between releases.** A golden set of `ti_query` calls is run through the real MCP request handler on the previous tag and on the new code, then diffed. v1.3.0 matched v1.2.1 on all 17 cases. In v1.3.1 the only difference across 19 cases is the intended fix: two ThreatFox fields that were always `null` now carry values.
+
+**Provider data is real.** `fixtures/` holds sanitised responses recorded from the live APIs (`scripts/record_fixtures.py`). The tool tests replay them and validate the output against `schemas/`.
 
 ---
 

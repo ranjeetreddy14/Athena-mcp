@@ -98,6 +98,23 @@ def test_lookup_every_fixture(monkeypatch, athena_config, read_audit, source, ca
     assert entry["response"] == r
 
 
+MIRAI_SHA = "da10faedff30caf7196bbd6cd879963437c48f3719f813cdad556c9d554595fa"
+
+
+def test_threatfox_match_carries_type_codes_in_both_tools(monkeypatch):
+    """v1.3.1: ioc_type / threat_type reach both ti_lookup and ti_query (TriageLoop's post-check)."""
+    case = load_fixture("threatfox")["cases"][1]
+    assert case["indicator"] == MIRAI_SHA
+    replay(monkeypatch, "threatfox", case)
+
+    facts = lookup("threatfox", "hash", MIRAI_SHA)["observed_facts"]
+    assert (facts["ioc_type"], facts["threat_type"]) == ("sha256_hash", "payload")
+
+    monkeypatch.setenv("ATHENA_CACHE_TTL", "0")  # make ti_query run the tool itself
+    data = json.loads(asyncio.run(server.handle_call_tool("ti_query", {"query": f"check hash {MIRAI_SHA}"}))[0].text)
+    assert (data["observed_facts"]["ioc_type"], data["observed_facts"]["threat_type"]) == ("sha256_hash", "payload")
+
+
 # --- validation ---------------------------------------------------------------------------------
 @pytest.mark.parametrize("arguments", [
     {"source": "threatfox", "indicator_type": "hash", "indicator": SHA},                        # no caller

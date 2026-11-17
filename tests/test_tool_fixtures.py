@@ -146,9 +146,22 @@ def test_threatfox_malicious_hash_facts(monkeypatch):
     assert facts["ioc"] == case["indicator"]
     assert facts["malware_family"] == raw["malware_printable"] == "Mirai"
     assert facts["confidence"] == raw["confidence_level"] and facts["tags"] == raw["tags"]
-    # Known issue (unchanged in v1.3.0): the tool reads ioc_type_full/threat_type_full, which
-    # ThreatFox does not return, so these are always null.
-    assert facts["ioc_type"] is None and facts["threat_type"] is None
+    # v1.3.1 fix: these were always null (the tool read non-existent *_full fields).
+    # TriageLoop's post-check reads both ("any ThreatFox match -> can't be FALSE_POSITIVE").
+    assert facts["ioc_type"] == raw["ioc_type"] == "sha256_hash"
+    assert facts["threat_type"] == raw["threat_type"] == "payload"
+
+
+@pytest.mark.parametrize("field", ["ioc_type", "threat_type"])
+@pytest.mark.parametrize("bad", [None, ""])
+def test_threatfox_schema_rejects_missing_type_codes(monkeypatch, field, bad):
+    """Regression guard: the pre-v1.3.1 output (null type codes) must not validate."""
+    case = _case("threatfox", "malicious")
+    replay(monkeypatch, "threatfox", case)
+    facts = threatfox_tool.execute(case["indicator"])
+    facts[field] = bad
+    with pytest.raises(jsonschema.ValidationError):
+        _validate("threatfox", facts)
 
 
 def test_threatfox_benign_ip_is_no_result(monkeypatch):

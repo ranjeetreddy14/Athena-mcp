@@ -1,5 +1,20 @@
 # Version History
 
+## v1.3.1 - ThreatFox type codes
+*Released: November 2026*
+
+Bug fix. The response contracts are unchanged; `ti_query` output differs from v1.3.0 only where noted below.
+
+**Fixed:**
+- **ThreatFox `ioc_type` and `threat_type` were always `null`.** `tools/threatfox_tool.py` read `ioc_type_full` / `threat_type_full`, fields the ThreatFox API does not return (confirmed against the live API on 2026-11-17). It now reads `ioc_type` / `threat_type` and returns ThreatFox's codes, e.g. `sha256_hash`, `ip:port` / `payload`, `botnet_cc`. TriageLoop's post-check reads both fields ("any ThreatFox match → can't be FALSE_POSITIVE"), so with v1.3.0 the check never saw a ThreatFox match type.
+  - **Effect on `ti_query`:** for a ThreatFox match, `observed_facts.ioc_type` and `observed_facts.threat_type` now have values instead of `null`. Nothing else changes. Golden diff against v1.3.0: 19 cases, 18 identical; the one ThreatFox-match case differs only in those two fields.
+  - The bug has been present since ThreatFox support was added in v1.1.
+- **`schemas/threatfox.json`** now requires both fields as non-empty strings on a match, so a regression to `null` fails validation. `fixtures/threatfox.json` was already correct: it stores ThreatFox's real `ioc_type` / `threat_type` values, so it was not re-recorded. Only the test assertion had encoded the bug.
+
+**Docs:** README states the two deliberate agentic-mode design choices explicitly (`caller` is policy, not authentication; why `ti_lookup` omits VirusTotal's `verdict`). It also documents how Athena is verified, including the injected-bug check: 7 deliberate bugs, each failed the suite.
+
+---
+
 ## v1.3.0 - Agentic Mode
 *Released: November 2026*
 
@@ -18,18 +33,19 @@ Makes Athena callable by an autonomous pipeline (**TriageLoop**) without looseni
 
 **Changed:**
 - `ti_lookup` removes judgement keys (`verdict`, `severity`, `attribution`, `remediation`, `recommendation[s]`) from `observed_facts` at any depth. In practice this removes the `verdict` the VirusTotal tool derives from engine counts; the counts themselves remain. `ti_query` still emits VirusTotal's `verdict`, as in v1.2.
-- The MCP SDK's input validation is now done by Athena, so `ti_lookup` can answer with its error contract. `ti_query` gets an identical copy of the SDK check, with the same error text.
+- **The MCP SDK's input validation is now done by Athena** (`@server.call_tool(validate_input=False)`).
+  - **Why:** the SDK checks arguments against `inputSchema` *before* Athena sees the call, and answers a mismatch with plain text (`Input validation error: ...`, `isError: true`). A malformed `ti_lookup` call would then get free text instead of `{"ok": false, "reason": "invalid_request", "source": ...}`, which breaks the non-interactive error contract an unattended caller depends on. With SDK validation off, `ti_lookup` validates its own input and always answers in the contract.
+  - **`ti_query` is unaffected:** it gets an identical copy of the SDK check, so its validation errors are byte-for-byte the same. This is verified by the 17-case golden diff against v1.2.1, which includes missing-argument, wrong-type and unknown-tool calls.
 - `ti_query` audit entries gain `cache_hit`. `executed_tool` is `null` on a cache hit.
 - `capabilities.json`: `data_freshness` now mentions the cache. VirusTotal `input_type` corrected from "URL/Domain/Hash" to "URL/Hash", which matches the registry; VirusTotal never received domains.
 - New runtime dependency declared: `jsonschema` (already present via `mcp`).
 
-**Known issues (not changed in this release):**
-- `tools/threatfox_tool.py` reads `ioc_type_full` / `threat_type_full`, which the ThreatFox API does not return (it returns `ioc_type` / `threat_type`), so those two facts are always `null` in both `ti_query` and `ti_lookup`. Fixing it changes `ti_query` output, which this release must not do. Confirmed against the live API on 2026-11-17.
+**Known issues:**
+- ~~ThreatFox `ioc_type` / `threat_type` always `null`~~: **fixed in v1.3.1**.
 
 **Future items:**
 - Migrate `server.py` to the `mcp` 2.x API (carried over from v1.2.1).
-- Fix the ThreatFox field names above.
-- `caller` is self-declared. If Athena is ever exposed beyond a stdio child process, add caller authentication.
+- `caller` is self-declared (by design: agentic mode assumes a local stdio parent process). If Athena is ever exposed over a network transport, add caller authentication.
 
 ---
 

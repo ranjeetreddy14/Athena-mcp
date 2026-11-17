@@ -26,8 +26,10 @@ def execute(ioc: str) -> Dict[str, Any]:
                 ioc_data = data["data"][0]
                 return {
                     "ioc": ioc,
-                    "ioc_type": ioc_data.get("ioc_type_full"),
-                    "threat_type": ioc_data.get("threat_type_full"),
+                    # ThreatFox returns machine codes in ioc_type / threat_type (e.g. "sha256_hash",
+                    # "payload", "botnet_cc"). Before v1.3.1 this read *_full fields, which do not exist.
+                    "ioc_type": ioc_data.get("ioc_type"),
+                    "threat_type": ioc_data.get("threat_type"),
                     "malware_family": ioc_data.get("malware_printable", "Unknown"),
                     "confidence": ioc_data.get("confidence_level"),
                     "first_seen": ioc_data.get("first_seen"),
