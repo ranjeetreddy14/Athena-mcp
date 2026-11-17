@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ranjeetreddy14/Athena-mcp/schemas/abuseipdb.json",
+  "title": "Athena observed_facts: abuseipdb (tool abuse_ip_db)",
+  "description": "Output of tools/abuseipdb_tool.execute() on success. Errors are never observed_facts. abuse_confidence_score is AbuseIPDB's own score, reported as an observed fact.",
+  "type": "object",
+  "properties": {
+    "ip": {"type": "string"},
+    "abuse_confidence_score": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+    "total_reports": {"type": ["integer", "null"], "minimum": 0},
+    "distinct_users": {"type": ["integer", "null"], "minimum": 0},
+    "last_reported_at": {"type": ["string", "null"]},
+    "usage_type": {"type": ["string", "null"]},
+    "isp": {"type": ["string", "null"]},
+    "country": {"type": ["string", "null"]}
+  },
+  "required": ["ip", "abuse_confidence_score", "total_reports", "distinct_users", "last_reported_at", "usage_type", "isp", "country"],
+  "additionalProperties": false
+}

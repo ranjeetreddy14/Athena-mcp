@@ -1,4 +1,4 @@
-# 🦅 Athena (v1.2)
+# 🦅 Athena (v1.3)
 
 [![MCP](https://img.shields.io/badge/MCP-1.0-blue)](https://modelcontextprotocol.io)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-green)](https://python.org)
@@ -6,7 +6,14 @@
 
 Athena is a high-performance **Model Context Protocol (MCP)** server Runtime designed for autonomous threat intelligence orchestration. It bridges the gap between natural language security queries and technical intelligence APIs like Shodan and VirusTotal.
 
-## 🚀 What's New in v1.2?
+## 🚀 What's New in v1.3?
+
+- **Agentic mode** for unattended pipelines (first consumer: **TriageLoop**): `ti_lookup` and `ti_lookup_batch` take structured input and return structured output, with no natural-language routing and no questions. See [Agentic mode](#-agentic-mode-triageloop).
+- **Shared response cache** for `ti_query` and the agentic tools.
+- **JSON Schemas** for every source's `observed_facts` in `schemas/`, and recorded provider fixtures in `fixtures/`.
+- `ti_query`, the persona and the three-lane output contract are unchanged.
+
+## What's New in v1.2?
 
 - **Analyst-Augmented Output**: Responses now use a three-lane structure: `observed_facts` (Athena-provided), `analyst_interpretation` (LLM-rendered), and `recommended_next_steps` (LLM-rendered).
 - **Senior CTI Persona Prompt**: LLMs must request the `senior_cti_analyst` MCP Prompt at session startup to inject the Senior CTI Analyst persona.
@@ -95,11 +102,63 @@ ROUTER_THRESHOLD=0.30
 
 ---
 
+## 🤖 Agentic mode (TriageLoop)
+
+`ti_query` is built for a human talking to an LLM: it routes natural language, asks for approval in conversation, and offers suggestions. An autonomous pipeline needs the opposite. Athena's first agentic consumer is **TriageLoop**, which calls Athena once per indicator during automated case triage and records Athena's version for every case.
+
+Agentic mode adds two MCP tools beside `ti_query`:
+
+| Tool | Input | Output |
+|---|---|---|
+| `ti_lookup` | `{"source", "indicator_type", "indicator", "caller"}` | one result |
+| `ti_lookup_batch` | `{"items": [ti_lookup input, ...]}` (1–25) | `{"ok": true, "results": [...], "athena_version"}`, same order as `items` |
+
+- **source:** `shodan`, `virustotal`, `abuseipdb`, `threatfox`
+- **indicator_type:** `ip` (IPv4), `domain`, `url` (http/https), `hash` (MD5/SHA-1/SHA-256)
+- **caller:** an identifier for the calling system, e.g. `triageloop`
+
+**Success** returns only what the source reported:
+```json
+{"ok": true, "source": "threatfox", "indicator_type": "hash", "indicator": "da10fa...95fa",
+ "observed_facts": {"ioc": "da10fa...95fa", "malware_family": "Mirai", "confidence": 90, "...": "..."},
+ "cached": false, "athena_version": "1.3.0"}
+```
+`observed_facts` follows `schemas/<source>.json`.
+
+**Failure** is always exactly this, never a question or free text:
+```json
+{"ok": false, "reason": "approval_required", "source": "virustotal"}
+```
+Reason codes: `invalid_request`, `unknown_source`, `source_disabled`, `invalid_indicator_type`, `unsupported_indicator_type`, `invalid_indicator`, `non_routable_ip`, `approval_required`, `missing_api_key`, `upstream_rate_limited`, `upstream_error`, `config_error`, `batch_too_large`, `internal_error`.
+
+**What agentic mode will not do:**
+- **No judgements.** It never returns a verdict, severity, attribution or remediation. VirusTotal's derived `verdict` field is removed; the engine counts remain. A tripwire test enforces this on every recorded fixture and every failure path.
+- **No queries to private targets.** Private, loopback and link-local IPs are rejected, the same rule `ti_query` uses. URLs pointing at such hosts, or at `localhost`, are rejected too.
+- **No embedding model.** It never loads the model and never does natural-language routing.
+
+**Approval.** Conversational approval ("yes, proceed") does not exist here; it is configuration. Copy `config/athena.example.json` to `config/athena.json`, or point `ATHENA_CONFIG` at a file:
+```json
+{"trusted_callers": ["triageloop"], "medium_risk_requires_approval": true,
+ "cache": {"dir": "cache", "ttl_seconds": 3600}}
+```
+Low-risk sources are always allowed. Medium-risk sources (VirusTotal) need the caller to be in `trusted_callers`, unless `medium_risk_requires_approval` is `false`. Otherwise the call returns `approval_required`. Defaults are fail-safe: no trusted callers, approval required. `caller` is self-declared: it is policy, not authentication.
+
+**Cache.** Results are cached on disk per `(source, indicator)` for `ttl_seconds` (default 3600; `0` disables). The cache is shared with `ti_query` and stores only successful lookups. Override with `ATHENA_CACHE_DIR` / `ATHENA_CACHE_TTL`. A cache hit returns `"cached": true`.
+
+**Audit.** Every agentic call writes one entry to the audit log (one per item for batches) with `routing: "agentic"`, `caller`, `source`, `indicator_type`, `indicator`, `executed_tool` (`null` if nothing ran), `cache_hit`, `ok`, `reason`, and `batch_id`/`batch_index` for batches.
+
+**Discovery.** `ti://capabilities` lists all MCP tools and carries `athena_version` (the value TriageLoop records), plus an `agentic_mode` block with the contract version, sources, reason codes and limits.
+
+---
+
 ## 📂 Project Structure
 - `server.py`: The MCP entry point & stdio handler.
-- `orchestrator/`: The "Brain" (Router, Registry, Logic).
+- `orchestrator/`: The "Brain" (Router, Registry, Logic). `agentic.py`, `cache.py`, `config.py` and `indicators.py` implement agentic mode.
 - `tools/`: Atomic implementations of TI lookups.
 - `registry/`: Intent phrases & tool definitions (`tools.json`).
+- `schemas/`: JSON Schema for each source's `observed_facts`.
+- `fixtures/`: Recorded, sanitised provider responses used by the tests (`scripts/record_fixtures.py` re-records them).
+- `config/`: `athena.example.json` (agentic approval policy and cache).
 - `logs/`: Persistent JSON auditing for security review.
 
 ---

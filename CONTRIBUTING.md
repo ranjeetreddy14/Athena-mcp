@@ -69,6 +69,16 @@ if route.tool_name == "my_new_tool":
     tool_data = await asyncio.to_thread(my_tool.execute, entity.value)
 ```
 
+### 4. Agentic mode, schema and fixture
+- Add the tool to `SOURCES` in `orchestrator/agentic.py` (source name → registry tool + module) and to
+  `agentic_mode.sources` in `capabilities.json`. `tests/test_capabilities.py` fails until both agree.
+- Add `schemas/<source>.json` describing the tool's success output (`additionalProperties: false`).
+- Add a recorder for the source in `scripts/record_fixtures.py` (read-only lookups, one benign and one
+  malicious public indicator, sanitised) and commit `fixtures/<source>.json`. The fixture tests replay it
+  offline and validate the tool's output against the schema.
+- Make sure the tool's output carries no judgement (verdict, severity, attribution, remediation):
+  `tests/test_agentic_tripwire.py` runs every fixture through `ti_lookup`.
+
 Note: hashes are not routed by the similarity router; they follow a fixed rule
 (ThreatFox by default, VirusTotal when the user asks for it) in `orchestrator/router.py`.
 

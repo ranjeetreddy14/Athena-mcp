@@ -1,5 +1,5 @@
 {
-    "athena_version": "1.2.1",
+    "athena_version": "1.3.0",
     "rendering_mode": "analyst_augmented",
     "execution_model": "server-authoritative",
     "llm_role": "renderer-only",
@@ -29,26 +29,31 @@
         "NEVER issue autonomous verdicts without observed_facts support.",
         "Use three-lane output structure: Observed Facts, Analyst Interpretation, Recommended Next Steps."
     ],
+    "mcp_tools": [
+        {"name": "ti_query", "mode": "conversational", "contract": "output_contract"},
+        {"name": "ti_lookup", "mode": "agentic", "contract": "agentic_mode"},
+        {"name": "ti_lookup_batch", "mode": "agentic", "contract": "agentic_mode"}
+    ],
     "available_tools": [
         {
             "name": "ip_intel_shodan",
             "input_type": "IP Address",
-            "data_freshness": "Real-time"
+            "data_freshness": "Real-time, or from the response cache (default TTL 3600 s)"
         },
         {
             "name": "url_scan_virustotal",
-            "input_type": "URL/Domain/Hash",
-            "data_freshness": "Real-time"
+            "input_type": "URL/Hash",
+            "data_freshness": "Real-time, or from the response cache (default TTL 3600 s)"
         },
         {
             "name": "abuse_ip_db",
             "input_type": "IP Address",
-            "data_freshness": "Real-time"
+            "data_freshness": "Real-time, or from the response cache (default TTL 3600 s)"
         },
         {
             "name": "threatfox_ioc",
             "input_type": "IOC (IP/Domain/Url/Hash)",
-            "data_freshness": "Real-time"
+            "data_freshness": "Real-time, or from the response cache (default TTL 3600 s)"
         }
     ],
     "output_contract": {
@@ -66,5 +71,51 @@
             "suggestions": "Disambiguation suggestions when intent is unclear"
         },
         "stability": "guaranteed"
+    },
+    "agentic_mode": {
+        "contract_version": "1",
+        "consumer": "TriageLoop",
+        "tools": ["ti_lookup", "ti_lookup_batch"],
+        "input": {
+            "ti_lookup": {"source": "<source>", "indicator_type": "<indicator_type>", "indicator": "<string>", "caller": "<caller id>"},
+            "ti_lookup_batch": {"items": "[ti_lookup input, ...] (1 to batch_max_items)"}
+        },
+        "output": {
+            "success": {"ok": true, "source": "<source>", "indicator_type": "<indicator_type>", "indicator": "<normalised>", "observed_facts": "<object, see observed_facts_schema>", "cached": "<bool>", "athena_version": "<string>"},
+            "failure": {"ok": false, "reason": "<reason_code>", "source": "<source or null>"},
+            "batch": {"ok": true, "results": "[one ti_lookup output per item, same order]", "athena_version": "<string>"}
+        },
+        "sources": {
+            "shodan": {"tool": "ip_intel_shodan", "indicator_types": ["ip"], "risk_tier": "low", "observed_facts_schema": "schemas/shodan.json"},
+            "virustotal": {"tool": "url_scan_virustotal", "indicator_types": ["url", "hash"], "risk_tier": "medium", "observed_facts_schema": "schemas/virustotal.json"},
+            "abuseipdb": {"tool": "abuse_ip_db", "indicator_types": ["ip"], "risk_tier": "low", "observed_facts_schema": "schemas/abuseipdb.json"},
+            "threatfox": {"tool": "threatfox_ioc", "indicator_types": ["ip", "domain", "url", "hash"], "risk_tier": "low", "observed_facts_schema": "schemas/threatfox.json"}
+        },
+        "indicator_types": {
+            "ip": "IPv4 dotted quad. Private, loopback and link-local addresses are rejected (non_routable_ip), same rule as ti_query.",
+            "domain": "Domain name; lower-cased, trailing dot removed.",
+            "url": "http or https URL. Hosts that are private/loopback/link-local IP literals or localhost are rejected (non_routable_ip).",
+            "hash": "MD5, SHA-1 or SHA-256 in hex; lower-cased."
+        },
+        "approval": {
+            "config_keys": ["trusted_callers", "medium_risk_requires_approval"],
+            "defaults": {"trusted_callers": [], "medium_risk_requires_approval": true},
+            "rule": "low: always allowed. medium: allowed if caller is in trusted_callers or medium_risk_requires_approval is false. Any other tier: trusted callers only. Otherwise reason=approval_required."
+        },
+        "reason_codes": [
+            "invalid_request", "unknown_source", "source_disabled", "invalid_indicator_type",
+            "unsupported_indicator_type", "invalid_indicator", "non_routable_ip", "approval_required",
+            "missing_api_key", "upstream_rate_limited", "upstream_error", "config_error",
+            "batch_too_large", "internal_error"
+        ],
+        "batch_max_items": 25,
+        "cache": {"key": ["source", "indicator"], "default_ttl_seconds": 3600, "shared_with": ["ti_query", "ti_lookup", "ti_lookup_batch"], "stores": "successful results only (never errors or pending scans)"},
+        "audit": {"routing": "agentic", "fields": ["caller", "source", "indicator_type", "indicator", "routing", "tool", "executed_tool", "cache_hit", "ok", "reason", "batch_id", "batch_index", "athena_version"]},
+        "guarantees": [
+            "No verdicts, severity, attribution or remediation in any agentic output.",
+            "No questions, suggestions or free text: failures are reason codes only.",
+            "Never loads the embedding model; no natural-language routing.",
+            "Exactly one audit entry per call (per item for batches)."
+        ]
     }
 }

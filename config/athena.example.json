@@ -1,0 +1,8 @@
+{
+  "trusted_callers": ["triageloop"],
+  "medium_risk_requires_approval": true,
+  "cache": {
+    "dir": "cache",
+    "ttl_seconds": 3600
+  }
+}

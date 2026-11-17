@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ranjeetreddy14/Athena-mcp/schemas/shodan.json",
+  "title": "Athena observed_facts: shodan (tool ip_intel_shodan)",
+  "description": "Output of tools/shodan_tool.execute() on success. Errors are never observed_facts.",
+  "oneOf": [
+    {
+      "title": "host",
+      "type": "object",
+      "properties": {
+        "ip": {"type": "string"},
+        "country": {"type": ["string", "null"]},
+        "city": {"type": ["string", "null"]},
+        "org": {"type": ["string", "null"]},
+        "isp": {"type": ["string", "null"]},
+        "asn": {"type": ["string", "null"]},
+        "ports": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 65535}},
+        "hostnames": {"type": "array", "items": {"type": "string"}},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "last_seen": {"type": ["string", "null"]}
+      },
+      "required": ["ip", "country", "city", "org", "isp", "asn", "ports", "hostnames", "tags", "last_seen"],
+      "additionalProperties": false
+    },
+    {
+      "title": "not_found",
+      "type": "object",
+      "properties": {
+        "status": {"const": "not_found"},
+        "message": {"type": "string"}
+      },
+      "required": ["status", "message"],
+      "additionalProperties": false
+    }
+  ]
+}

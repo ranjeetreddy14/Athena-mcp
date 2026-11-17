@@ -7,6 +7,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tools import shodan_tool
+from fixture_replay import load_fixture
+
+FIXTURE = {c['label']: c for c in load_fixture('shodan')['cases']}
 
 class TestShodanTool(unittest.TestCase):
     def test_validate_ip_public(self):
@@ -29,41 +32,36 @@ class TestShodanTool(unittest.TestCase):
     @patch('tools.shodan_tool.os.getenv')
     @patch('tools.shodan_tool.requests.get')
     def test_execute_success(self, mock_get, mock_getenv):
+        """Recorded Shodan response for 8.8.8.8 (fixtures/shodan.json, 'benign')."""
         mock_getenv.return_value = "dummy_key"
-        
-        # Mock API Response
+        case = FIXTURE["benign"]
+        raw = case["response"]["json"]
         mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "country_name": "United States",
-            "city": "Mountain View",
-            "org": "Google LLC",
-            "isp": "Google",
-            "asn": "AS15169",
-            "ports": [80, 443],
-            "hostnames": ["dns.google"],
-            "tags": ["cloud"],
-            "last_update": "2023-01-01"
-        }
+        mock_resp.status_code = case["response"]["status_code"]
+        mock_resp.json.return_value = raw
         mock_get.return_value = mock_resp
 
-        result = shodan_tool.execute("8.8.8.8")
-        
+        result = shodan_tool.execute(case["indicator"])
+
         # Verify Normalization
         self.assertEqual(result["ip"], "8.8.8.8")
-        self.assertEqual(result["country"], "United States")
-        self.assertEqual(result["ports"], [80, 443])
+        self.assertEqual(result["country"], raw["country_name"])
+        self.assertEqual(result["ports"], raw["ports"])
         self.assertNotIn("error", result)
+        self.assertEqual(mock_get.call_args.args[0], case["request"]["url"])
 
     @patch('tools.shodan_tool.os.getenv')
     @patch('tools.shodan_tool.requests.get')
     def test_execute_404(self, mock_get, mock_getenv):
+        """Recorded Shodan 404 for a ThreatFox-listed C2 IP (fixtures/shodan.json, 'malicious')."""
         mock_getenv.return_value = "dummy_key"
+        case = FIXTURE["malicious"]
         mock_resp = MagicMock()
-        mock_resp.status_code = 404
+        mock_resp.status_code = case["response"]["status_code"]
+        mock_resp.json.return_value = case["response"]["json"]
         mock_get.return_value = mock_resp
 
-        result = shodan_tool.execute("1.2.3.4")
+        result = shodan_tool.execute(case["indicator"])
         self.assertEqual(result["status"], "not_found")
 
 if __name__ == '__main__':

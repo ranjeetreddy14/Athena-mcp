@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ranjeetreddy14/Athena-mcp/schemas/threatfox.json",
+  "title": "Athena observed_facts: threatfox (tool threatfox_ioc)",
+  "description": "Output of tools/threatfox_tool.execute() on success. Errors are never observed_facts. Known issue (v1.3.0): ioc_type and threat_type are always null because the tool reads ThreatFox fields that do not exist (ioc_type_full, threat_type_full); left unchanged because ti_query output must not change in this release.",
+  "oneOf": [
+    {
+      "title": "match",
+      "type": "object",
+      "properties": {
+        "ioc": {"type": "string"},
+        "ioc_type": {"type": ["string", "null"]},
+        "threat_type": {"type": ["string", "null"]},
+        "malware_family": {"type": ["string", "null"]},
+        "confidence": {"type": ["integer", "null"], "minimum": 0, "maximum": 100},
+        "first_seen": {"type": ["string", "null"]},
+        "last_seen": {"type": ["string", "null"]},
+        "tags": {"type": ["array", "null"], "items": {"type": "string"}},
+        "reference": {"type": ["string", "null"]}
+      },
+      "required": ["ioc", "ioc_type", "threat_type", "malware_family", "confidence", "first_seen", "last_seen", "tags", "reference"],
+      "additionalProperties": false
+    },
+    {
+      "title": "no_result",
+      "type": "object",
+      "properties": {
+        "status": {"const": "no_result"},
+        "message": {"type": "string"}
+      },
+      "required": ["status", "message"],
+      "additionalProperties": false
+    }
+  ]
+}

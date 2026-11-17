@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Threat Intel MCP Server Entry Point
-Responsibility: Expose the 'ti_query' tool via MCP stdio protocol.
+Responsibility: Expose MCP tools via stdio:
+  - ti_query: conversational, natural-language queries (v1.2 three-lane contract)
+  - ti_lookup / ti_lookup_batch: agentic, structured lookups (see orchestrator/agentic.py)
 """
 import asyncio
 import os
@@ -58,7 +60,16 @@ def log_audit(entry: Dict[str, Any]):
 from orchestrator.entity import detect_entity, EntityType
 from orchestrator.router import SemanticRouter
 from orchestrator.registry import ToolRegistry
+from orchestrator.agentic import (
+    AgenticService, TOOL_TO_SOURCE,
+    TI_LOOKUP_INPUT_SCHEMA, TI_LOOKUP_OUTPUT_SCHEMA,
+    TI_LOOKUP_BATCH_INPUT_SCHEMA, TI_LOOKUP_BATCH_OUTPUT_SCHEMA,
+)
+from orchestrator.cache import ResponseCache
+from orchestrator.config import ConfigError, load_config
+from orchestrator.indicators import cache_key_indicator
 from tools import shodan_tool, virustotal_tool, abuseipdb_tool, threatfox_tool
+import jsonschema
 
 # Initialize Orchestrator Components
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -71,6 +82,34 @@ REGISTRY_PATH = os.path.join(BASE_DIR, 'registry', 'tools.json')
 
 registry = ToolRegistry(REGISTRY_PATH)
 router = SemanticRouter(registry)
+agentic = AgenticService(registry, lambda entry: log_audit(entry))  # never touches the router
+
+
+async def _execute_cached(tool_name: str, module, entity, audit: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a ti_query tool through the shared (source, indicator) response cache.
+
+    Records cache_hit / executed_tool in the audit dict. Cache problems never affect the query:
+    on a config error the tool simply runs uncached.
+    """
+    source = TOOL_TO_SOURCE.get(tool_name)
+    key = cache_key_indicator(entity.type.value, entity.value)
+    cache = None
+    if source:
+        try:
+            config = load_config()
+            cache = ResponseCache(config.cache_dir, config.cache_ttl_seconds)
+        except ConfigError as e:
+            logger.warning(f"Response cache disabled for this query: {e}")
+    if cache:
+        cached = cache.get(source, key)
+        if cached is not None:
+            audit["cache_hit"] = True
+            return cached
+    audit["executed_tool"] = tool_name
+    data = await asyncio.to_thread(module.execute, entity.value)
+    if cache:
+        cache.put(source, key, data)
+    return data
 
 # Initialize MCP Server
 server = Server("athena")
@@ -107,6 +146,26 @@ class ThreatIntelResponse(BaseModel):
 
 import mcp.types as types
 
+TI_QUERY_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {
+            "type": "string",
+            "description": "The natural language query (e.g., 'Check IP 8.8.8.8')"
+        }
+    },
+    "required": ["query"]
+}
+
+AGENTIC_TOOL_NOTICE = """For unattended callers (e.g. TriageLoop). Structured in, structured out: no natural-language
+routing, no clarifying questions, no approval prompts.
+
+Returns observed facts from the named source only. Athena never returns verdicts, severity,
+attribution or remediation. On any failure returns {"ok": false, "reason": <code>, "source": <source|null>}.
+Medium-risk sources (virustotal) require the caller to be in trusted_callers when
+medium_risk_requires_approval is true; otherwise reason="approval_required".
+Results are cached per (source, indicator); "cached": true marks a cache hit."""
+
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
     return [
@@ -127,17 +186,21 @@ REQUIRED RESPONSE STRUCTURE:
 1) Observed Facts (verbatim from tool output only)
 2) Analyst Interpretation (training-based hypotheses; explicitly labeled)
 3) Recommended Next Steps (non-binding investigative suggestions)""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The natural language query (e.g., 'Check IP 8.8.8.8')"
-                    }
-                },
-                "required": ["query"]
-            }
-        )
+            inputSchema=TI_QUERY_INPUT_SCHEMA
+        ),
+        types.Tool(
+            name="ti_lookup",
+            description="AGENTIC LOOKUP: one indicator against one source.\n\n" + AGENTIC_TOOL_NOTICE,
+            inputSchema=TI_LOOKUP_INPUT_SCHEMA,
+            outputSchema=TI_LOOKUP_OUTPUT_SCHEMA,
+        ),
+        types.Tool(
+            name="ti_lookup_batch",
+            description="AGENTIC BATCH LOOKUP: up to 25 ti_lookup items, processed in order; "
+                        "results[i] answers items[i].\n\n" + AGENTIC_TOOL_NOTICE,
+            inputSchema=TI_LOOKUP_BATCH_INPUT_SCHEMA,
+            outputSchema=TI_LOOKUP_BATCH_OUTPUT_SCHEMA,
+        ),
     ]
 
 # ---------------------------------------------------------------------
@@ -204,13 +267,29 @@ async def handle_get_prompt(name: str, arguments: dict | None) -> types.GetPromp
         )
     raise ValueError(f"Unknown prompt: {name}")
 
-@server.call_tool()
+# validate_input=False: the SDK's own validation answers with plain text ("Input validation error: ...")
+# before Athena sees the call, which would break ti_lookup's {"ok": false, "reason", "source"} contract.
+# ti_lookup validates itself; ti_query gets an identical copy of the SDK check below.
+@server.call_tool(validate_input=False)
 async def handle_call_tool(
     name: str, arguments: dict | None
-) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-    
+) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource] | dict | types.CallToolResult:
+
+    if name == "ti_lookup":
+        return await asyncio.to_thread(agentic.lookup, arguments)
+    if name == "ti_lookup_batch":
+        return await asyncio.to_thread(agentic.lookup_batch, arguments)
+
     if name != "ti_query":
         raise ValueError(f"Unknown tool: {name}")
+
+    try:  # same check, same message the MCP SDK applied to ti_query before v1.3
+        jsonschema.validate(instance=arguments or {}, schema=TI_QUERY_INPUT_SCHEMA)
+    except jsonschema.ValidationError as e:
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=f"Input validation error: {e.message}")],
+            isError=True,
+        )
 
     if not arguments or "query" not in arguments:
         raise ValueError("Missing 'query' argument")
@@ -237,7 +316,8 @@ async def handle_call_tool(
         "selected_tool": route.tool_name,
         "confidence": route.confidence,
         "routing": route.method,  # "hash_rule" | "semantic" | "entity_filter"
-        "executed_tool": None,    # set below to the tool that actually ran
+        "executed_tool": None,    # set below to the tool that actually ran (null on a cache hit)
+        "cache_hit": False,       # true when the result came from the response cache
         "persona": "senior_cti_v1_2",
         "persona_hash": PERSONA_HASH
     }
@@ -258,8 +338,7 @@ async def handle_call_tool(
 
             if wants_vt:
                 logger.info("Executing VirusTotal (User Approved/Requested for Hash)")
-                audit["executed_tool"] = "url_scan_virustotal"
-                tool_data = await asyncio.to_thread(virustotal_tool.execute, entity.value)
+                tool_data = await _execute_cached("url_scan_virustotal", virustotal_tool, entity, audit)
                 final_response = ThreatIntelResponse(
                     ok="error" not in tool_data,
                     summary=f"Successfully executed VirusTotal scan for hash" if "error" not in tool_data else tool_data.get("error"),
@@ -269,8 +348,7 @@ async def handle_call_tool(
                 )
             else:
                 logger.info("Executing ThreatFox (Default for Hash)")
-                audit["executed_tool"] = "threatfox_ioc"
-                tool_data = await asyncio.to_thread(threatfox_tool.execute, entity.value)
+                tool_data = await _execute_cached("threatfox_ioc", threatfox_tool, entity, audit)
                 
                 if tool_data.get("status") == "no_result":
                     final_response = ThreatIntelResponse(
@@ -316,16 +394,15 @@ async def handle_call_tool(
             else:
                 # Execute Tool
                 tool_data = {}
-                audit["executed_tool"] = route.tool_name
                 try:
                     if route.tool_name == "ip_intel_shodan":
-                        tool_data = await asyncio.to_thread(shodan_tool.execute, entity.value)
+                        tool_data = await _execute_cached("ip_intel_shodan", shodan_tool, entity, audit)
                     elif route.tool_name == "url_scan_virustotal":
-                        tool_data = await asyncio.to_thread(virustotal_tool.execute, entity.value)
+                        tool_data = await _execute_cached("url_scan_virustotal", virustotal_tool, entity, audit)
                     elif route.tool_name == "abuse_ip_db":
-                        tool_data = await asyncio.to_thread(abuseipdb_tool.execute, entity.value)
+                        tool_data = await _execute_cached("abuse_ip_db", abuseipdb_tool, entity, audit)
                     elif route.tool_name == "threatfox_ioc":
-                        tool_data = await asyncio.to_thread(threatfox_tool.execute, entity.value)
+                        tool_data = await _execute_cached("threatfox_ioc", threatfox_tool, entity, audit)
                     else:
                         tool_data = {"error": f"Tool implementation '{route.tool_name}' not found."}
                 except Exception as e:

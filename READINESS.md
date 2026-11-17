@@ -1,5 +1,36 @@
 # READINESS — Athena (ti-mcp-server)
 
+## Status after v1.3.0 (agentic mode)
+
+**Every Agentic-mode checklist item (§5) is done and every constraint held.** A1–A11, C1–C7 and R1–R5 are listed in §5. From a brand-new Python 3.11.5 environment built only from `uv.lock` (mcp 1.30.0), offline, with dummy keys only:
+
+| Hugging Face cache | Result |
+|---|---|
+| model present | **263 passed** |
+| model absent | **258 passed, 5 skipped** (only the 5 `requires_model` tests; nothing downloaded) |
+
+How we know the tests bite: six deliberate bugs were injected, one per guarantee, and each failed the suite:
+
+| Injected bug | Tests failed |
+|---|---|
+| ti_lookup leaks VT verdict | 6 |
+| untrusted caller allowed a medium-risk source | 3 |
+| private IPs accepted | 16 |
+| agentic path touches the router (model) | 130 |
+| MCP SDK input validation re-enabled | 13 |
+| ti_query bypasses the cache | 2 |
+
+`ti_query` is byte-identical to v1.2.1 across a 17-case golden set run through the real SDK handler, including input-validation and unknown-tool errors. A real MCP client over stdio received the error contract on every failure path, `athena_version` 1.3.0 from `ti://capabilities`, and never triggered a model load.
+
+**Open (needs your decision):**
+- **INTEGRATION_READINESS.md is still not in the repo.** §5 maps the brief's bullet list; if the real file has more items, they are not covered.
+- **ThreatFox `ioc_type` / `threat_type` are always `null`** (pre-existing tool bug, confirmed against the live API). Fixing it changes `ti_query` output, which this release must not do.
+- **`caller` is self-declared**, so `trusted_callers` is policy, not authentication. That is fine for a stdio child process; it is not enough if Athena is exposed more widely.
+- **Shodan's "malicious" fixture is a 404.** The ThreatFox C2 IP is not in Shodan, so that fixture covers the not-found path rather than a malicious host record.
+- `v1.3.0` is tagged locally and **not pushed**.
+
+---
+
 ## Status after v1.2.1 (stabilisation)
 
 **All findings from the original assessment (below) are resolved; see "Still open" for what remains.** From a brand-new Python 3.11.5 environment built only from `uv.lock`, bare `pytest` gives:
@@ -36,6 +67,55 @@
 **Still open:**
 - **Section 5 (READINESS CHECKLIST)** still can't be assessed: `INTEGRATION_READINESS.md` is not in the repo or anywhere on this machine. It must be added before the §5 mapping is done.
 - Not verified: install on Linux/macOS (the lock has the right wheels, but I only ran Windows), any live API call, and PyPI deprecation/CVE status. No CI exists yet. VirusTotal/AbuseIPDB/ThreatFox tool modules still have no unit tests.
+
+---
+
+## 5. Integration readiness: Agentic mode (INTEGRATION_READINESS.md §1) — v1.3.0
+
+**Source of the checklist.** `INTEGRATION_READINESS.md` was referenced by the Session 3 brief but was never available on this machine (searched the repo, `c:\Repos`, Desktop, Documents, Downloads). The items below are taken verbatim from the bullet list in the Session 3 brief, which says to implement v1.3 "exactly as the checklist lists". **If the real file has items not listed here, they are not covered.** This mapping was written before any v1.3 code; the Status column was filled in after the final verification run.
+
+Consumer: **TriageLoop**, an autonomous pipeline. It pins Athena by git tag and reads `ti://capabilities` to record the version per case.
+
+### 5.1 Checklist items
+
+| # | Checklist item | Implementation | Verified by | Status |
+|---|---|---|---|---|
+| A1 | `ti_lookup(source, indicator_type, indicator, caller)` as a new MCP tool beside `ti_query`; structured in, structured out; no NL routing; no clarifying questions | `orchestrator/agentic.py` (pure logic) + dispatch in `server.py`. Strict `inputSchema` (enums), `outputSchema`, returns MCP `structuredContent`. Never calls the router | `tests/test_agentic.py`, stdio end-to-end | **done**: stdio client gets `structuredContent`; SDK `outputSchema` validation passes on every test call |
+| A2 | `ti_lookup_batch(items)` | Same validation/policy per item, sequential, results in input order, max items enforced | `tests/test_agentic.py` | **done**: order, per-item audit, `batch_id`, limit 25, in-batch duplicates hit cache |
+| A3 | Validate `indicator_type` / `indicator` format | `ip` (IPv4), `domain`, `url` (http/https), `hash` (MD5/SHA1/SHA256); source must accept the type (from `registry/tools.json`) | `tests/test_agentic.py` (parametrised valid/invalid) | **done**: 19 invalid-format cases, 4 type-not-accepted cases, normalisation |
+| A4 | Reject private / loopback / link-local IPs **exactly as `ti_query` does** | Reuses the same predicate `ti_query`'s tools use (`tools/shodan_tool.validate_ip`) | `tests/test_agentic.py` | **done**: same predicate; 14-address parity test vs `ti_query`'s rule; URL hosts too (interp. 5) |
+| A5 | Approval from config for agentic callers: `trusted_callers`, `medium_risk_requires_approval`; untrusted caller + medium-risk source → `{"ok": false, "reason": "approval_required"}` | `orchestrator/config.py`; `$ATHENA_CONFIG` or `config/athena.json`, defaults fail-safe (`[]`, `true`). Risk tier from registry | `tests/test_agentic.py` | **done**: default, trusted, flag off, low risk, unknown tier, bad config → `config_error` |
+| A6 | Every agentic call writes an audit entry: `caller`, `source`, `indicator_type`, `routing="agentic"`, `executed_tool` | Written for every outcome incl. rejections and each batch item | `tests/test_agentic.py` (every path) | **done**: one entry per call on every path incl. rejections, batch failures and audit-write failure (fails closed) |
+| A7 | Non-interactive error contract: any failure → `{"ok": false, "reason": ..., "source": ...}`; never a question | Exactly those 3 keys; enumerated reason codes; all exceptions caught | `tests/test_agentic.py` + tripwire | **done**: exactly 3 keys, 14 codes; provider error text (even questions) never passes through; checked over real stdio |
+| A8 | Response cache keyed by `(source, indicator)`, TTL default 3600 s, on disk, configurable path, used by **both** `ti_query` and `ti_lookup`; cache hits marked in the audit entry | `orchestrator/cache.py`; `$ATHENA_CACHE_DIR` / `$ATHENA_CACHE_TTL` or config; `cache_hit` in both audit entry types | `tests/test_cache.py` | **done**: shared both ways; hit/expiry/TTL 0/errors & pending not cached/corrupt entries/bad config; `cache_hit` in both audit types |
+| A9 | JSON Schema per source's `observed_facts` → `schemas/{shodan,virustotal,abuseipdb,threatfox}.json`; test that each tool's output validates | Hand-written Draft 2020-12, `additionalProperties: false` so drift fails | `tests/test_tool_fixtures.py` | **done**: 4 schemas, meta-validated; all 8 fixture outputs + VT URL/no_result variants validate; extra fields rejected |
+| A10 | One sanitised fixture per source under `fixtures/` (well-known benign + well-known malicious public indicators, no private data); tool tests use them | `scripts/record_fixtures.py` (read-only lookups, keys never written), recorded once live | `tests/test_tool_fixtures.py`, `tests/test_shodan_tool.py` | **done** (recorded 2026-11-17): 8 cases; read in full before commit; public data only; keys `<redacted>` |
+| A11 | `ti://capabilities` lists the new tools and exposes a version string TriageLoop can read | `capabilities.json`: `athena_version`, `mcp_tools`, `agentic_mode` (sources, types, reason codes, limits) | `tests/test_capabilities.py` (drift tests vs code/registry) | **done**: `athena_version` 1.3.0, `mcp_tools`, `agentic_mode`; drift tests vs code, registry, config defaults and audit fields |
+
+### 5.2 Constraints
+
+| # | Constraint | How it is held | Verified by | Status |
+|---|---|---|---|---|
+| C1 | `ti_query` behaviour unchanged | Only additions: cache lookup around tool execution, `cache_hit` in its audit entry | Golden diff: identical `ti_query` responses from v1.2.1 and v1.3.0 code over a fixed query set | **held**: golden diff 17/17 identical (cache off); with cache on only the 2 repeat-indicator cases differ (served from cache) |
+| C2 | Persona unchanged | `persona/` not touched | `git diff v1.2.1 -- persona` empty | **held**: `git diff v1.2.1 -- persona` empty |
+| C3 | Three-lane output contract unchanged | `ThreatIntelResponse` not touched | golden diff (C1) | **held**: golden diff (C1) |
+| C4 | Never emit verdict, severity, attribution, remediation; tripwire for `ti_lookup` | `ti_lookup` output carries only provider facts; forbidden keys/phrases checked recursively | `tests/test_agentic_tripwire.py` | **held**: judgement keys stripped in code at any depth; `tests/test_agentic_tripwire.py` (20 tests) incl. checker self-test |
+| C5 | Agentic calls never load the embedding model | No router call on any agentic path | sentinel that fails if the model is constructed, on every agentic test | **held**: sentinel on every agentic/cache/tripwire test; router-use mutant fails 130 tests; stdio run never logs a model load |
+| C6 | Keep conftest tripwires | Extended (config file, cache dir), not relaxed | `tests/test_isolation.py` | **held**: extended to `config/athena.json` and `cache/`; real audit log 46 → 46 lines |
+| C7 | Build on v1.2.1 / mcp 1.30 | `mcp>=1.25,<2` unchanged | lockfile | **held**: lock still resolves mcp 1.30.0 |
+| R1 | Tests for every new behaviour; green on fresh 3.11, offline, no real keys | | fresh `uv sync --frozen` env, both HF-cache states | **done**: fresh env from lock: 263 passed (model cached) / 258 passed + 5 skipped (empty cache), offline, dummy keys |
+| R2–R5 | Tag v1.3.0; CHANGELOG; README "Agentic mode" naming TriageLoop; READINESS | | | **done**: tag `v1.3.0` (local); CHANGELOG; README "Agentic mode"; this file |
+
+### 5.3 Interpretations (the brief leaves room; please check)
+
+1. **`ti_query` input validation.** The MCP SDK validates `inputSchema` *before* Athena sees a call and answers with plain text (`Input validation error: ...`), which would break A7 for `ti_lookup`. SDK validation is therefore turned off and done by Athena: `ti_lookup` gets the A7 contract, and `ti_query` gets a byte-identical copy of the SDK's error result (part of the C1 golden diff).
+2. **Failures are not MCP `isError`.** `{"ok": false, ...}` is returned as normal structured content; `ok` is the success signal.
+3. **VirusTotal `verdict` is dropped from `ti_lookup`.** `tools/virustotal_tool.py` derives a `verdict` field (`malicious`/`suspicious`/`safe`) from engine counts; `ti_query` keeps emitting it (C1), but `ti_lookup` removes it to satisfy C4. The engine counts remain. The schema lists `verdict` as optional so both validate.
+4. **IP format = IPv4 only**, matching what `ti_query` can detect. IPv6 → `invalid_indicator`.
+5. **URLs whose host is a private/loopback/link-local IP literal or `localhost` are rejected** (`non_routable_ip`). Stricter than `ti_query`, which forwards such URLs to VirusTotal; for an unattended pipeline that would leak internal URLs to a third party.
+6. **`caller` is self-asserted.** Over stdio, whoever launches Athena controls it; `trusted_callers` is policy, not authentication.
+7. **Cache stores only successful results** (including "not found"/"no result"), never errors or VirusTotal `pending` scans. On a cache hit `executed_tool` is `null` and `cache_hit` is `true`.
+8. **Fixtures are recorded live** with the keys in the local `.env`, read-only lookups only; VirusTotal is queried by hash only (URL submissions are public).
 
 ---
 
@@ -146,7 +226,7 @@ No other test failures.
 - **Hazard:** `server.py` calls `load_dotenv()` at import, so any test that imports `server` loads real keys into the process. Today everything is mocked, so no live call happens. One unmocked test would spend real quota.
 - **Side effect of my runs:** importing `server` creates and appends to `logs/audit.jsonl`. Baseline run E added **3 entries (43 → 46 lines)**. The file is gitignored and `git status` is clean. Say so if you want those 3 lines removed.
 
-## 5. READINESS CHECKLIST: not assessed
+## 5 (original). READINESS CHECKLIST: not assessed — superseded by §5 above
 
 **The brief with the READINESS CHECKLIST was not in the message I received.** Your paste contained only the task instructions, and there is no checklist file in the repo (I searched). I did not guess at its items. Please paste it and I'll map each item to a status.
 

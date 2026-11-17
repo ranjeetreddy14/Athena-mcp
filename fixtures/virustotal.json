@@ -1,0 +1,88 @@
+{
+  "source": "virustotal",
+  "recorded_at": "2026-11-17T06:16:20+00:00",
+  "recorder": "scripts/record_fixtures.py",
+  "sanitisation": "data.attributes reduced to last_analysis_stats, reputation, type_description, size and hashes; per-engine results, file names and all other attributes dropped. Hash lookups only.",
+  "cases": [
+    {
+      "label": "benign",
+      "indicator_type": "hash",
+      "indicator": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "why": "SHA-256 of the empty file (well-known, benign)",
+      "request": {
+        "method": "GET",
+        "url": "https://www.virustotal.com/api/v3/files/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "headers": {
+          "x-apikey": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "data": {
+            "id": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "type": "file",
+            "attributes": {
+              "last_analysis_stats": {
+                "malicious": 0,
+                "suspicious": 0,
+                "undetected": 59,
+                "harmless": 0,
+                "timeout": 1,
+                "confirmed-timeout": 1,
+                "failure": 2,
+                "type-unsupported": 11
+              },
+              "reputation": 2175,
+              "type_description": "unknown",
+              "size": 0,
+              "md5": "d41d8cd98f00b204e9800998ecf8427e",
+              "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+              "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            }
+          }
+        }
+      }
+    },
+    {
+      "label": "malicious",
+      "indicator_type": "hash",
+      "indicator": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+      "why": "EICAR anti-malware test file (industry-standard 'malicious' test sample)",
+      "request": {
+        "method": "GET",
+        "url": "https://www.virustotal.com/api/v3/files/275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+        "headers": {
+          "x-apikey": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "data": {
+            "id": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+            "type": "file",
+            "attributes": {
+              "last_analysis_stats": {
+                "malicious": 65,
+                "suspicious": 0,
+                "undetected": 2,
+                "harmless": 0,
+                "timeout": 0,
+                "confirmed-timeout": 0,
+                "failure": 0,
+                "type-unsupported": 7
+              },
+              "reputation": 3800,
+              "type_description": "Powershell",
+              "size": 68,
+              "md5": "44d88612fea8a8f36de82e1278abb02f",
+              "sha1": "3395856ce81f2b7382dee72602f798b642f14140",
+              "sha256": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

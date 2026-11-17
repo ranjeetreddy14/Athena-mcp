@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ranjeetreddy14/Athena-mcp/schemas/virustotal.json",
+  "title": "Athena observed_facts: virustotal (tool url_scan_virustotal)",
+  "description": "Output of tools/virustotal_tool.execute() on success. Errors are never observed_facts.",
+  "$defs": {
+    "count": {"type": "integer", "minimum": 0}
+  },
+  "oneOf": [
+    {
+      "title": "report",
+      "type": "object",
+      "properties": {
+        "hash": {"type": "string", "pattern": "^([0-9a-fA-F]{32}|[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"},
+        "url": {"type": "string"},
+        "verdict": {
+          "description": "Label Athena derives from engine counts. Emitted by ti_query only (v1.2 compatibility); ti_lookup removes it, so it is optional here.",
+          "enum": ["safe", "suspicious", "malicious"]
+        },
+        "malicious_count": {"$ref": "#/$defs/count"},
+        "suspicious_count": {"$ref": "#/$defs/count"},
+        "harmless_count": {"$ref": "#/$defs/count"},
+        "total_engines": {"$ref": "#/$defs/count"},
+        "reputation": {"type": "integer"},
+        "permalink": {"type": "string", "pattern": "^https://www\\.virustotal\\.com/gui/(file|url)/"}
+      },
+      "required": ["malicious_count", "suspicious_count", "harmless_count", "total_engines", "reputation", "permalink"],
+      "oneOf": [
+        {"required": ["hash"], "not": {"required": ["url"]}},
+        {"required": ["url"], "not": {"required": ["hash"]}}
+      ],
+      "additionalProperties": false
+    },
+    {
+      "title": "no_result",
+      "type": "object",
+      "properties": {
+        "status": {"const": "no_result"},
+        "message": {"type": "string"}
+      },
+      "required": ["status", "message"],
+      "additionalProperties": false
+    },
+    {
+      "title": "pending",
+      "description": "URL scan still running. Never cached.",
+      "type": "object",
+      "properties": {
+        "status": {"const": "pending"},
+        "message": {"type": "string"},
+        "observable": {"type": "string"},
+        "vt_link": {"type": "string"}
+      },
+      "required": ["status", "message", "observable", "vt_link"],
+      "additionalProperties": false
+    }
+  ]
+}

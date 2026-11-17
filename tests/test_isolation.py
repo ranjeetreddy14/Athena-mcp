@@ -41,8 +41,9 @@ def test_env_file_is_not_the_repo_dotenv():
     assert not os.path.exists(os.environ["ATHENA_ENV_FILE"])
 
 
-@pytest.mark.parametrize("rel", [".env", os.path.join("logs", "audit.jsonl")])
-def test_tripwire_blocks_real_dotenv_and_audit_log(rel):
+@pytest.mark.parametrize("rel", [".env", os.path.join("logs", "audit.jsonl"), os.path.join("config", "athena.json"),
+                                 os.path.join("cache", "anything.json")])
+def test_tripwire_blocks_real_dotenv_audit_log_config_and_cache(rel):
     with pytest.raises(RuntimeError, match="must not touch"):
         open(os.path.join(REPO_ROOT, rel))
 
@@ -52,6 +53,13 @@ def test_non_loopback_network_is_blocked():
     # A routable literal IP: no DNS involved, so only the conftest guard can stop this.
     with pytest.raises(RuntimeError, match="network connection"):
         socket.create_connection(("93.184.216.34", 80), timeout=2)
+
+
+def test_config_and_cache_are_temp_locations(cache_dir):
+    from orchestrator.config import load_config
+    assert not os.path.exists(os.environ["ATHENA_CONFIG"])
+    assert load_config().cache_dir == str(cache_dir)
+    assert not str(cache_dir).startswith(os.path.join(REPO_ROOT, "cache"))
 
 
 def test_huggingface_is_offline():
@@ -65,9 +73,10 @@ def test_importing_server_does_not_load_model():
 
 def test_mcp_discovery_calls_do_not_load_model(no_model):
     """list_tools / prompts / resources are what an agentic client calls on connect."""
-    assert [t.name for t in asyncio.run(server.handle_list_tools())] == ["ti_query"]
+    assert [t.name for t in asyncio.run(server.handle_list_tools())] == ["ti_query", "ti_lookup", "ti_lookup_batch"]
     assert [p.name for p in asyncio.run(server.handle_list_prompts())] == ["senior_cti_analyst"]
     assert len(asyncio.run(server.handle_list_resources())) == 1
+    assert asyncio.run(server.handle_read_resource(server.types.AnyUrl("ti://capabilities")))
     prompt = asyncio.run(server.handle_get_prompt("senior_cti_analyst", None))
     assert prompt.messages
 

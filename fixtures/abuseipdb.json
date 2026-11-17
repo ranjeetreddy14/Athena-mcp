@@ -1,0 +1,86 @@
+{
+  "source": "abuseipdb",
+  "recorded_at": "2026-11-17T06:16:21+00:00",
+  "recorder": "scripts/record_fixtures.py",
+  "sanitisation": "Summary 'data' fields only (no individual reports).",
+  "cases": [
+    {
+      "label": "benign",
+      "indicator_type": "ip",
+      "indicator": "8.8.8.8",
+      "why": "Google Public DNS resolver",
+      "request": {
+        "method": "GET",
+        "url": "https://api.abuseipdb.com/api/v2/check",
+        "params": {
+          "ipAddress": "8.8.8.8",
+          "maxAgeInDays": "90"
+        },
+        "headers": {
+          "Key": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "data": {
+            "ipAddress": "8.8.8.8",
+            "isPublic": true,
+            "ipVersion": 4,
+            "isWhitelisted": true,
+            "abuseConfidenceScore": 0,
+            "countryCode": "US",
+            "usageType": "Content Delivery Network",
+            "isp": "Google LLC",
+            "domain": "google.com",
+            "hostnames": [
+              "dns.google"
+            ],
+            "isTor": false,
+            "totalReports": 196,
+            "numDistinctUsers": 66,
+            "lastReportedAt": "2026-11-17T00:00:48+00:00"
+          }
+        }
+      }
+    },
+    {
+      "label": "malicious",
+      "indicator_type": "ip",
+      "indicator": "130.12.182.38",
+      "why": "ThreatFox IOC #2032545 (CECbot, botnet_cc, confidence 100)",
+      "request": {
+        "method": "GET",
+        "url": "https://api.abuseipdb.com/api/v2/check",
+        "params": {
+          "ipAddress": "130.12.182.38",
+          "maxAgeInDays": "90"
+        },
+        "headers": {
+          "Key": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "data": {
+            "ipAddress": "130.12.182.38",
+            "isPublic": true,
+            "ipVersion": 4,
+            "isWhitelisted": false,
+            "abuseConfidenceScore": 0,
+            "countryCode": "SI",
+            "usageType": "Data Center/Web Hosting/Transit",
+            "isp": "Netiface LLC",
+            "domain": "abusehandler.net",
+            "hostnames": [],
+            "isTor": false,
+            "totalReports": 0,
+            "numDistinctUsers": 0,
+            "lastReportedAt": "2026-04-22T19:51:13+00:00"
+          }
+        }
+      }
+    }
+  ]
+}

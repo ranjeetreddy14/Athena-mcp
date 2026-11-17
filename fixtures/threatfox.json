@@ -1,0 +1,77 @@
+{
+  "source": "threatfox",
+  "recorded_at": "2026-11-17T06:16:22+00:00",
+  "recorder": "scripts/record_fixtures.py",
+  "sanitisation": "First match only; reporter, credits and malware_samples dropped.",
+  "cases": [
+    {
+      "label": "benign",
+      "indicator_type": "ip",
+      "indicator": "8.8.8.8",
+      "why": "Google Public DNS resolver",
+      "request": {
+        "method": "POST",
+        "url": "https://threatfox-api.abuse.ch/api/v1/",
+        "json": {
+          "query": "search_ioc",
+          "search_term": "8.8.8.8"
+        },
+        "headers": {
+          "Auth-Key": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "query_status": "no_result",
+          "data": "Your search did not yield any results"
+        }
+      }
+    },
+    {
+      "label": "malicious",
+      "indicator_type": "hash",
+      "indicator": "da10faedff30caf7196bbd6cd879963437c48f3719f813cdad556c9d554595fa",
+      "why": "ThreatFox IOC #2032666 (Mirai, payload, confidence 90)",
+      "request": {
+        "method": "POST",
+        "url": "https://threatfox-api.abuse.ch/api/v1/",
+        "json": {
+          "query": "search_ioc",
+          "search_term": "da10faedff30caf7196bbd6cd879963437c48f3719f813cdad556c9d554595fa"
+        },
+        "headers": {
+          "Auth-Key": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "query_status": "ok",
+          "data": [
+            {
+              "id": "2032666",
+              "ioc": "da10faedff30caf7196bbd6cd879963437c48f3719f813cdad556c9d554595fa",
+              "threat_type": "payload",
+              "threat_type_desc": "Indicator that identifies a malware sample (payload)",
+              "ioc_type": "sha256_hash",
+              "ioc_type_desc": "SHA256 hash of a malware sample (payload)",
+              "malware": "elf.mirai",
+              "malware_printable": "Mirai",
+              "malware_alias": "Katana",
+              "malware_malpedia": "https://malpedia.caad.fkie.fraunhofer.de/details/elf.mirai",
+              "confidence_level": 90,
+              "first_seen": "2026-11-17 05:59:12 UTC",
+              "last_seen": null,
+              "reference": null,
+              "tags": [
+                "elf",
+                "Mirai"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

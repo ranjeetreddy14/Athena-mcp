@@ -1,0 +1,64 @@
+{
+  "source": "shodan",
+  "recorded_at": "2026-11-17T06:16:02+00:00",
+  "recorder": "scripts/record_fixtures.py",
+  "sanitisation": "Top-level host fields only; service banners ('data'), vulns and other keys dropped.",
+  "cases": [
+    {
+      "label": "benign",
+      "indicator_type": "ip",
+      "indicator": "8.8.8.8",
+      "why": "Google Public DNS resolver",
+      "request": {
+        "method": "GET",
+        "url": "https://api.shodan.io/shodan/host/8.8.8.8",
+        "params": {
+          "key": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 200,
+        "json": {
+          "ip_str": "8.8.8.8",
+          "country_code": "US",
+          "country_name": "United States",
+          "city": "Mountain View",
+          "org": "Google LLC",
+          "isp": "Google LLC",
+          "asn": "AS15169",
+          "ports": [
+            443,
+            53
+          ],
+          "hostnames": [
+            "dnstest.trello.com",
+            "dns.google"
+          ],
+          "tags": [
+            "pqc"
+          ],
+          "last_update": "2026-11-16T22:59:47.936727"
+        }
+      }
+    },
+    {
+      "label": "malicious",
+      "indicator_type": "ip",
+      "indicator": "130.12.182.38",
+      "why": "ThreatFox IOC #2032545 (CECbot, botnet_cc, confidence 100)",
+      "request": {
+        "method": "GET",
+        "url": "https://api.shodan.io/shodan/host/130.12.182.38",
+        "params": {
+          "key": "<redacted>"
+        }
+      },
+      "response": {
+        "status_code": 404,
+        "json": {
+          "error": "No information available for that IP."
+        }
+      }
+    }
+  ]
+}

@@ -23,3 +23,7 @@ antigravity/
 # Temporary
 @test_*
 *.log
+
+# Athena runtime (v1.3)
+cache/
+config/athena.json

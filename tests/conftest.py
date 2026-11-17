@@ -7,6 +7,9 @@ Guarantees, enforced here rather than by convention:
     repo's .env raise.
   * No real audit log: ATHENA_AUDIT_PATH points at a temp file (per test), and the audit hook makes
     opening the repo's logs/audit.jsonl raise.
+  * No real config or cache: ATHENA_CONFIG points at a non-existent file (fail-safe defaults),
+    ATHENA_CACHE_DIR at a per-test temp dir, and opening config/athena.json or anything under the
+    repo's cache/ raises.
   * No network: non-loopback socket connects raise, and Hugging Face runs in offline mode.
     (Tests that need the embedding model are marked `requires_model` and skipped if it is not
     already in the local HF cache.)
@@ -42,17 +45,28 @@ for _var in API_KEY_VARS:
 os.environ["ROUTER_THRESHOLD"] = "0.30"  # the documented default, independent of any local .env
 os.environ["ATHENA_ENV_FILE"] = os.path.join(_SESSION_TMP, "no-such.env")
 os.environ["ATHENA_AUDIT_PATH"] = os.path.join(_SESSION_TMP, "audit.jsonl")
+os.environ["ATHENA_CONFIG"] = os.path.join(_SESSION_TMP, "no-such-config.json")
+os.environ["ATHENA_CACHE_DIR"] = os.path.join(_SESSION_TMP, "cache")
+os.environ.pop("ATHENA_CACHE_TTL", None)
 
-# --- 2. Audit hook: tripwire on the two files tests must never touch ---------------------------
+# --- 2. Audit hook: tripwire on the files tests must never touch -------------------------------
+def _norm(*parts):
+    return os.path.normcase(os.path.abspath(os.path.join(*parts)))
+
+
 _FORBIDDEN = {
-    os.path.normcase(os.path.abspath(os.path.join(REPO_ROOT, ".env"))): ".env",
-    os.path.normcase(os.path.abspath(os.path.join(REPO_ROOT, "logs", "audit.jsonl"))): "logs/audit.jsonl",
+    _norm(REPO_ROOT, ".env"): ".env",
+    _norm(REPO_ROOT, "logs", "audit.jsonl"): "logs/audit.jsonl",
+    _norm(REPO_ROOT, "config", "athena.json"): "config/athena.json",
 }
+_FORBIDDEN_DIRS = {_norm(REPO_ROOT, "cache") + os.sep: "cache/"}
 
 
 def _open_guard(event, args):
     if event == "open" and isinstance(args[0], (str, os.PathLike)):
-        name = _FORBIDDEN.get(os.path.normcase(os.path.abspath(os.fspath(args[0]))))
+        path = os.path.normcase(os.path.abspath(os.fspath(args[0])))
+        name = _FORBIDDEN.get(path) or next(
+            (label for prefix, label in _FORBIDDEN_DIRS.items() if path.startswith(prefix)), None)
         if name:
             raise RuntimeError(f"Test suite attempted to open {name}; tests must not touch it.")
 
@@ -113,6 +127,33 @@ def audit_path(tmp_path, monkeypatch):
     path = tmp_path / "audit.jsonl"
     monkeypatch.setenv("ATHENA_AUDIT_PATH", str(path))
     return path
+
+
+@pytest.fixture(autouse=True)
+def cache_dir(tmp_path, monkeypatch):
+    """Fresh, empty response cache per test (so results never leak between tests)."""
+    path = tmp_path / "cache"
+    monkeypatch.setenv("ATHENA_CACHE_DIR", str(path))
+    return path
+
+
+@pytest.fixture
+def athena_config(tmp_path, monkeypatch):
+    """Write a config file for this test: athena_config(trusted_callers=[...], ...)."""
+    def _write(**values):
+        path = tmp_path / "athena.json"
+        path.write_text(json.dumps(values))
+        monkeypatch.setenv("ATHENA_CONFIG", str(path))
+        return path
+    return _write
+
+
+@pytest.fixture
+def no_model(monkeypatch):
+    """Any attempt to construct the embedding model fails the test."""
+    def boom(*args, **kwargs):
+        raise AssertionError("Embedding model was loaded; this code path must stay model-free.")
+    monkeypatch.setattr("orchestrator.router.SentenceTransformer", boom)
 
 
 @pytest.fixture
